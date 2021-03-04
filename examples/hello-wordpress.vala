@@ -23,6 +23,17 @@ public class HelloWordpress {
             print ("Uploaded Image: %s\n", file_url);
         }
 
+        if (client.create_post_simple(
+            out id,
+            "Hello world",
+            "<p>Hello Wordpress</p><img src='%s' />".printf (file_url),
+            false,
+            file_url,
+            {"Sample", "Post"}))
+        {
+            print ("\n\n** New post at %s/?p=%s\n\n", endpoint, id);
+        }
+
         return 0;
     }
 }

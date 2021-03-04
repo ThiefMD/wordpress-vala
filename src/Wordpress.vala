@@ -1,15 +1,11 @@
 namespace Wordpress {
-    public const string API_ENDPOINT = "wp/v2/";
-    public const string JWT_PATH = "jwt-auth/v1/";
-    public const string POST = "posts";
-    public const string IMAGE = "images";
-
     public class Client {
         public string endpoint;
         string username;
         private string? authenticated_user;
         private Soup.Session session;
         private string blog_id;
+        private int author_id;
 
         public Client (string url, string user, string token, string id = "1") {
             if (url.has_suffix ("/")) {
@@ -44,13 +40,65 @@ namespace Wordpress {
                 debug ("Status Code: %u", message.status_code);
 
                 if (message.status_code == 200) {
-                    result = true;
+                    Variant resp = Soup.XMLRPC.parse_response ((string) message.response_body.flatten ().data, -1, null);
+                    var possible_id = resp.lookup_value ("user_id", VariantType.STRING);
+                    if (possible_id != null) {
+                        author_id = int.parse(possible_id.get_string ());
+
+                        result = true;
+                    }
                 }
             } catch (Error e) {
                 warning ("Could not send request to endpoint: %s", e.message);
             }
 
             return result;
+        }
+
+        public bool create_post_simple (
+            out string id,
+            string title,
+            string html_body,
+            bool publish = true,
+            string cover_image_url = "",
+            string[]? tags = null)
+        {
+            bool success = false;
+            id = "";
+
+            VariantBuilder args2 = new VariantBuilder(new VariantType("a{sv}"));
+            args2.add ("{sv}", "post_type", new Variant("s", "post"));
+            args2.add ("{sv}", "post_status", new Variant("s", publish ? "publish" : "draft"));
+            args2.add ("{sv}", "post_title", new Variant("s", title));
+            args2.add ("{sv}", "post_author", new Variant("u", author_id));
+            args2.add ("{sv}", "post_content", new Variant("s", html_body));
+
+
+            VariantBuilder args = new VariantBuilder(new VariantType("(sssa{sv})"));
+            args.add ("s", blog_id);
+            args.add ("s", username);
+            args.add ("s", authenticated_user);
+            args.add_value (args2.end ());
+
+            try {
+                var message = Soup.XMLRPC.message_new (endpoint, "wp.newPost", args.end ());
+                session.send_message (message);
+
+                debug ("Status Code: %u", message.status_code);
+
+                if (message.status_code == 200) {
+                    Variant resp = Soup.XMLRPC.parse_response ((string) message.response_body.flatten ().data, -1, null);
+                    size_t length = 0;
+                    id = resp.get_string (out length);
+                    if (length > 0) {
+                        success = true;
+                    }
+                }
+            } catch (Error e) {
+                warning ("Could not send request to endpoint: %s", e.message);
+            }
+
+            return success;
         }
 
         public bool upload_image_simple (
@@ -69,11 +117,11 @@ namespace Wordpress {
             }
 
             uint8[] file_data;
-            string base64_file;
+            // string base64_file;
             Bytes bytes;
             try {
                 GLib.FileUtils.get_data(local_file_path, out file_data);
-                base64_file = Base64.encode (file_data);
+                // base64_file = Base64.encode (file_data);
                 bytes = new Bytes (file_data);
             } catch (GLib.FileError e) {
                 warning(e.message);
@@ -89,7 +137,7 @@ namespace Wordpress {
             VariantBuilder args2 = new VariantBuilder(VariantType.ARRAY);
             args2.add ("{sv}", "name", new Variant("s", upload_file.get_basename ()));
             args2.add ("{sv}", "type", new Variant("s", file_mimetype));
-            args2.add ("{sv}", "bits", new Variant.from_bytes (VariantType.BYTESTRING, bytes, true)); //new Variant.bytestring((string)file_data));
+            args2.add ("{sv}", "bits", new Variant.from_bytes (VariantType.BYTESTRING, bytes, true));
 
             VariantBuilder args = new VariantBuilder(new VariantType("(sssa{sv})"));
             args.add ("s", blog_id);
