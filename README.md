@@ -36,7 +36,7 @@ string password = "password";
 
 ## ToDo:
 
- uthentication with JWT extension.
+Authentication with JWT extension.
 
 # Quick Start
 
