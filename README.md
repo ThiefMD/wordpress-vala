@@ -1,6 +1,6 @@
 # wordpress-vala
 
-Unofficial [Wordpress](https://wordpress.org/) API client library for Vala. Still a work in progress.
+Unofficial [Wordpress](https://wordpress.org/) API client library for Vala. Still a work in progress. It currently uses XML-RPC.
 
 This is a simple API for publishing from [ThiefMD](https://thiefmd.com), and will hopefully become fully compatible with time.
 
@@ -33,6 +33,10 @@ Examples require update to username and password, don't check this in
 string user = "username";
 string password = "password";
 ```
+
+## ToDo:
+
+ uthentication with JWT extension.
 
 # Quick Start
 
