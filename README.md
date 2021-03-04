@@ -55,13 +55,11 @@ if (client.authenticate ()) {
 Wordpress.Client client = Client (url, username, password);
 
 string id;
-string slug;
-if (client.create_post_simple (out slug,
-    out id,
+if (client.create_post_simple (out id,
     "Hello world",
     "<p>Hello wordpress</p>"))
 {
-    print ("New post at %s/%s", url, slug);
+    print ("New post at %s/?p=%s", url, slug);
 }
 ```
 
