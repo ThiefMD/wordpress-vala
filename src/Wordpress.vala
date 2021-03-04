@@ -47,6 +47,9 @@ namespace Wordpress {
 
                         result = true;
                     }
+                } else {
+                    warning ("Status Code: %u", message.status_code);
+                    warning ("Body: %s", (string) message.response_body.flatten ().data);
                 }
             } catch (Error e) {
                 warning ("Could not send request to endpoint: %s", e.message);
@@ -61,7 +64,8 @@ namespace Wordpress {
             string html_body,
             bool publish = true,
             string cover_image_url = "",
-            string[]? tags = null)
+            string[]? tags = null,
+            bool strip_new_lines = false)
         {
             bool success = false;
             id = "";
@@ -71,7 +75,17 @@ namespace Wordpress {
             args2.add ("{sv}", "post_status", new Variant("s", publish ? "publish" : "draft"));
             args2.add ("{sv}", "post_title", new Variant("s", title));
             args2.add ("{sv}", "post_author", new Variant("u", author_id));
-            args2.add ("{sv}", "post_content", new Variant("s", html_body));
+            try {
+                if (strip_new_lines) {
+                    Regex regex = new Regex ("[\\r\\n\\R]", RegexCompileFlags.NEWLINE_ANYCRLF | RegexCompileFlags.BSR_ANYCRLF);
+                    args2.add ("{sv}", "post_content", new Variant("s", regex.replace (html_body, html_body.length, 0, "", RegexMatchFlags.BSR_ANYCRLF | RegexMatchFlags.NEWLINE_ANYCRLF)));
+                } else {
+                    args2.add ("{sv}", "post_content", new Variant("s", html_body));
+                }
+            } catch (Error e) {
+                warning ("Could not strip new line characters from post.");
+                return false;
+            }
 
 
             VariantBuilder args = new VariantBuilder(new VariantType("(sssa{sv})"));
@@ -93,6 +107,19 @@ namespace Wordpress {
                     if (length > 0) {
                         success = true;
                     }
+                } else if (!strip_new_lines && (message.status_code == 418 || message.status_code == 500)) {
+                    warning ("Encountered what appears to be mod_security error, trying again with workaround");
+                    return create_post_simple (
+                        out id,
+                        title,
+                        html_body,
+                        publish,
+                        cover_image_url,
+                        tags,
+                        true);
+                } else {
+                    warning ("Status Code: %u", message.status_code);
+                    warning ("Body: %s", (string) message.response_body.flatten ().data);
                 }
             } catch (Error e) {
                 warning ("Could not send request to endpoint: %s", e.message);
@@ -164,6 +191,9 @@ namespace Wordpress {
 
                         success = true;
                     }
+                } else {
+                    warning ("Status Code: %u", message.status_code);
+                    warning ("Body: %s", (string) message.response_body.flatten ().data);
                 }
             } catch (Error e) {
                 warning ("Could not send request to endpoint: %s", e.message);

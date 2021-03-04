@@ -1,6 +1,6 @@
 if get_option('enable_examples')
 
-  example_deps = libwordpress_deps + [ libwordpress_dep ]+ [ dependency('gtk+-3.0'), dependency('gtksourceview-3.0'), ]
+  example_deps = libwordpress_deps + [ libwordpress_dep ]
 
   executable('hello-wordpress', 'hello-wordpress.vala',
     dependencies: example_deps,

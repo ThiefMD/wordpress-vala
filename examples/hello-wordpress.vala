@@ -21,17 +21,22 @@ public class HelloWordpress {
             ))
         {
             print ("Uploaded Image: %s\n", file_url);
+        } else {
+            print ("Image failure\n");
+            return 0;
         }
 
         if (client.create_post_simple(
             out id,
             "Hello world",
-            "<p>Hello Wordpress</p><img src='%s' />".printf (file_url),
+            "<p>Hello Wordpress</p>\n<img src='%s' />".printf (file_url),
             false,
             file_url,
             {"Sample", "Post"}))
         {
             print ("\n\n** New post at %s/?p=%s\n\n", endpoint, id);
+        } else {
+            print ("Post failure\n");
         }
 
         return 0;
