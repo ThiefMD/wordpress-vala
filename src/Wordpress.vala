@@ -6,6 +6,7 @@ namespace Wordpress {
         private Soup.Session session;
         private string blog_id;
         private int author_id;
+        private Gee.Map<string, int> uploaded_images;
 
         public Client (string url, string user, string token, string id = "1") {
             if (url.has_suffix ("/")) {
@@ -24,6 +25,7 @@ namespace Wordpress {
             authenticated_user = token;
             session = new Soup.Session ();
             blog_id = id;
+            uploaded_images = new Gee.HashMap<string, int> ();
         }
 
         public bool authenticate () {
@@ -78,7 +80,7 @@ namespace Wordpress {
             try {
                 if (strip_new_lines) {
                     Regex regex = new Regex ("[\\r\\n\\R]", RegexCompileFlags.NEWLINE_ANYCRLF | RegexCompileFlags.BSR_ANYCRLF);
-                    args2.add ("{sv}", "post_content", new Variant("s", regex.replace (html_body, html_body.length, 0, "", RegexMatchFlags.BSR_ANYCRLF | RegexMatchFlags.NEWLINE_ANYCRLF)));
+                    args2.add ("{sv}", "post_content", new Variant("s", regex.replace (html_body, html_body.length, 0, " ", RegexMatchFlags.BSR_ANYCRLF | RegexMatchFlags.NEWLINE_ANYCRLF)));
                 } else {
                     args2.add ("{sv}", "post_content", new Variant("s", html_body));
                 }
@@ -87,6 +89,11 @@ namespace Wordpress {
                 return false;
             }
 
+            debug ("Adding image: %s", cover_image_url);
+            if (uploaded_images.has_key (cover_image_url)) {
+                debug ("added %d", uploaded_images.get (cover_image_url));
+                args2.add ("{sv}", "post_thumbnail", new Variant("i", uploaded_images.get (cover_image_url)));
+            }
 
             VariantBuilder args = new VariantBuilder(new VariantType("(sssa{sv})"));
             args.add ("s", blog_id);
@@ -202,6 +209,7 @@ namespace Wordpress {
                         file_url = possible_url.get_string ();
                         if (int.try_parse (possible_id.get_string (), out id)) {
                             success = true;
+                            uploaded_images.set (file_url, id);
                         }
                     }
                 } else {
