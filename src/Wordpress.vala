@@ -133,8 +133,19 @@ namespace Wordpress {
             string local_file_path
         )
         {
+            int id;
+            return upload_image (out file_url, out id, local_file_path);
+        }
+
+        public bool upload_image (
+            out string file_url,
+            out int id,
+            string local_file_path
+        )
+        {
             bool success = false;
             file_url = "";
+            id = -1;
             File upload_file = File.new_for_path (local_file_path);
             string file_mimetype = "application/octet-stream";
 
@@ -186,10 +197,12 @@ namespace Wordpress {
                 if (message.status_code == 200) {
                     Variant resp = Soup.XMLRPC.parse_response ((string) message.response_body.flatten ().data, -1, null);
                     var possible_url = resp.lookup_value ("url", VariantType.STRING);
+                    var possible_id = resp.lookup_value ("id", VariantType.STRING);
                     if (possible_url != null) {
                         file_url = possible_url.get_string ();
-
-                        success = true;
+                        if (int.try_parse (possible_id.get_string (), out id)) {
+                            success = true;
+                        }
                     }
                 } else {
                     warning ("Status Code: %u", message.status_code);
