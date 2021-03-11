@@ -1,6 +1,6 @@
 # wordpress-vala
 
-Unofficial [Wordpress](https://wordpress.org/) API client library for Vala. Still a work in progress. It currently uses XML-RPC.
+Unofficial [WordPress](https://wordpress.org/) API client library for Vala. Still a work in progress. It currently uses XML-RPC.
 
 This is a simple API for publishing from [ThiefMD](https://thiefmd.com), and will hopefully become fully compatible with time.
 
