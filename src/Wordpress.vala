@@ -37,22 +37,29 @@ namespace Wordpress {
 
             try {
                 var message = Soup.XMLRPC.message_new (endpoint, "wp.getProfile", args.end ());
-                session.send_message (message);
+                MainLoop loop = new MainLoop ();
+                session.queue_message (message, (sess, mess) => {
+                    try {
+                        debug ("Status Code: %u", mess.status_code);
 
-                debug ("Status Code: %u", message.status_code);
+                        if (mess.status_code == 200) {
+                            Variant resp = Soup.XMLRPC.parse_response ((string) mess.response_body.flatten ().data, -1, null);
+                            var possible_id = resp.lookup_value ("user_id", VariantType.STRING);
+                            if (possible_id != null) {
+                                author_id = int.parse(possible_id.get_string ());
 
-                if (message.status_code == 200) {
-                    Variant resp = Soup.XMLRPC.parse_response ((string) message.response_body.flatten ().data, -1, null);
-                    var possible_id = resp.lookup_value ("user_id", VariantType.STRING);
-                    if (possible_id != null) {
-                        author_id = int.parse(possible_id.get_string ());
-
-                        result = true;
+                                result = true;
+                            }
+                        } else {
+                            warning ("Status Code: %u", mess.status_code);
+                            warning ("Body: %s", (string) mess.response_body.flatten ().data);
+                        }
+                    } catch (Error e) {
+                        warning ("Could not parse auth response: %s", e.message);
                     }
-                } else {
-                    warning ("Status Code: %u", message.status_code);
-                    warning ("Body: %s", (string) message.response_body.flatten ().data);
-                }
+                    loop.quit ();
+                });
+                loop.run ();
             } catch (Error e) {
                 warning ("Could not send request to endpoint: %s", e.message);
             }
@@ -103,31 +110,40 @@ namespace Wordpress {
 
             try {
                 var message = Soup.XMLRPC.message_new (endpoint, "wp.newPost", args.end ());
-                session.send_message (message);
-
-                debug ("Status Code: %u", message.status_code);
-
-                if (message.status_code == 200) {
-                    Variant resp = Soup.XMLRPC.parse_response ((string) message.response_body.flatten ().data, -1, null);
-                    size_t length = 0;
-                    id = resp.get_string (out length);
-                    if (length > 0) {
-                        success = true;
+                MainLoop loop = new MainLoop ();
+                string image_id = "";
+                session.queue_message (message, (sess, mess) => {
+                    try {
+                        debug ("Status Code: %u", mess.status_code);
+                        if (mess.status_code == 200) {
+                            Variant resp = Soup.XMLRPC.parse_response ((string) mess.response_body.flatten ().data, -1, null);
+                            size_t length = 0;
+                            image_id = resp.get_string (out length);
+                            if (length > 0) {
+                                success = true;
+                            }
+                        } else if (!strip_new_lines && (mess.status_code == 418 || mess.status_code == 500)) {
+                            warning ("Encountered what appears to be mod_security error, trying again with workaround");
+                            success = create_post_simple (
+                                out image_id,
+                                title,
+                                html_body,
+                                publish,
+                                cover_image_url,
+                                tags,
+                                true);
+                        } else {
+                            warning ("Status Code: %u", mess.status_code);
+                            warning ("Body: %s", (string) mess.response_body.flatten ().data);
+                        }
+                    } catch (Error e) {
+                        warning ("Error processing response: %s", e.message);
                     }
-                } else if (!strip_new_lines && (message.status_code == 418 || message.status_code == 500)) {
-                    warning ("Encountered what appears to be mod_security error, trying again with workaround");
-                    return create_post_simple (
-                        out id,
-                        title,
-                        html_body,
-                        publish,
-                        cover_image_url,
-                        tags,
-                        true);
-                } else {
-                    warning ("Status Code: %u", message.status_code);
-                    warning ("Body: %s", (string) message.response_body.flatten ().data);
-                }
+                    loop.quit ();
+                });
+
+                loop.run ();
+                id = image_id;
             } catch (Error e) {
                 warning ("Could not send request to endpoint: %s", e.message);
             }
@@ -196,26 +212,37 @@ namespace Wordpress {
             debug ("Will upload %s : %s", file_mimetype, local_file_path);
 
             try {
+                string file_res = "";
+                int id_res = -1;
+                MainLoop loop = new MainLoop ();
                 var message = Soup.XMLRPC.message_new (endpoint, "wp.uploadFile", args.end ());
-                session.send_message (message);
+                session.queue_message (message, (sess, mess) => {
+                    try {
+                        debug ("Status Code: %u", mess.status_code);
 
-                debug ("Status Code: %u", message.status_code);
-
-                if (message.status_code == 200) {
-                    Variant resp = Soup.XMLRPC.parse_response ((string) message.response_body.flatten ().data, -1, null);
-                    var possible_url = resp.lookup_value ("url", VariantType.STRING);
-                    var possible_id = resp.lookup_value ("id", VariantType.STRING);
-                    if (possible_url != null) {
-                        file_url = possible_url.get_string ();
-                        if (int.try_parse (possible_id.get_string (), out id)) {
-                            success = true;
-                            uploaded_images.set (file_url, id);
+                        if (mess.status_code == 200) {
+                            Variant resp = Soup.XMLRPC.parse_response ((string) mess.response_body.flatten ().data, -1, null);
+                            var possible_url = resp.lookup_value ("url", VariantType.STRING);
+                            var possible_id = resp.lookup_value ("id", VariantType.STRING);
+                            if (possible_url != null) {
+                                file_res = possible_url.get_string ();
+                                if (int.try_parse (possible_id.get_string (), out id_res)) {
+                                    success = true;
+                                    uploaded_images.set (file_res, id_res);
+                                }
+                            }
+                        } else {
+                            warning ("Status Code: %u", mess.status_code);
+                            warning ("Body: %s", (string) mess.response_body.flatten ().data);
                         }
+                    } catch (Error e) {
+                        warning ("Could not parse image upload response: %s", e.message);
                     }
-                } else {
-                    warning ("Status Code: %u", message.status_code);
-                    warning ("Body: %s", (string) message.response_body.flatten ().data);
-                }
+                    loop.quit ();
+                });
+                loop.run ();
+                file_url = file_res;
+                id = id_res;
             } catch (Error e) {
                 warning ("Could not send request to endpoint: %s", e.message);
             }
