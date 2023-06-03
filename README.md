@@ -8,6 +8,8 @@ This is a simple API for publishing from [ThiefMD](https://thiefmd.com), and wil
 
 I recommend including `wordpress-vala` as a git submodule and adding `wordpress-vala/src/Wordpress.vala` to your sources list. This will avoid packaging conflicts and remote build system issues until I learn a better way to suggest this.
 
+For libsoup3, use `wordpress-vala/src/Wordpress3.vala`. Requires application level password.
+
 ### Requirements
 
 ```
