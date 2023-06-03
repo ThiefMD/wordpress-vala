@@ -2,6 +2,7 @@ namespace Wordpress {
     public class Client {
         public string endpoint;
         public string displayname;
+        public string blog_url;
         private string username;
         private string? authenticated_user;
         private Soup.Session session;
@@ -24,6 +25,7 @@ namespace Wordpress {
             }
 
             username = user;
+            blog_url = url;
             authenticated_user = "Basic " + Base64.encode ((user + ":" + token).data);
             session = new Soup.Session ();
             blog_id = id;
