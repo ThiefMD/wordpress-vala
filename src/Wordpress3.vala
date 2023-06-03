@@ -99,11 +99,16 @@ namespace Wordpress {
             generate.set_root (root);
             generate.set_pretty (false);
             string request_body = generate.to_data (null);
+            if (cover_image_id >= 0) {
+                request_body = request_body.replace ("\"featured-media\":%d".printf (cover_image_id), "\"featured_media\":%d".printf (cover_image_id));
+            }
 
             WebCall make_post = new WebCall (endpoint, "posts");
             make_post.set_post ();
             make_post.set_body (request_body);
             make_post.add_header ("Authorization", authenticated_user);
+
+            print (request_body);
 
             make_post.perform_call ();
 
@@ -253,7 +258,7 @@ namespace Wordpress {
         public string slug { get; set; }
         public string status { get; set; }
         public string link { get; set; }
-        public int? featured_media { get; set; }
+        public int featured_media { get; set; }
         public string format { get; set; }
         public Content title { get; set; }
         public Content excerpt { get; set; }
