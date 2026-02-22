@@ -35,7 +35,7 @@ namespace Wordpress {
         public bool authenticate () {
             bool result = false;
 
-            WebCall call = new WebCall (endpoint,  "users?context=edit");
+            WebCall call = new WebCall (endpoint,  "users/me");
             call.set_get ();
             call.add_header ("Authorization", authenticated_user);
             call.perform_call ();
@@ -44,8 +44,7 @@ namespace Wordpress {
                 try {
                     var parser = new Json.Parser ();
                     parser.load_from_data (call.response_str);
-                    var json_arr = parser.get_root ().get_array ();
-                    var json_obj = json_arr.get_element (0).get_object ();
+                    var json_obj = parser.get_root ().get_object ();
                     if (json_obj.has_member ("id")) {
                         author_id = (int)json_obj.get_int_member ("id");
                     }
@@ -196,7 +195,6 @@ namespace Wordpress {
             Bytes buffer = new Bytes.take(file_data);
             Soup.Multipart multipart = new Soup.Multipart("multipart/form-data");
             multipart.append_form_file ("file", upload_file.get_path (), file_mimetype, buffer);
-            // multipart.append_form_string ("ref", Soup.URI.encode(upload_file.get_basename ()), file_mimetype, buffer);
 
             WebCall call = new WebCall (endpoint, "media");
             call.set_multipart (multipart);

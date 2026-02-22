@@ -35,7 +35,7 @@ namespace Wordpress {
         public bool authenticate () {
             bool result = false;
 
-            WebCall call = new WebCall (endpoint,  "users?context=edit");
+            WebCall call = new WebCall (endpoint,  "users/me");
             call.set_get ();
             call.add_header ("Authorization", authenticated_user);
             call.perform_call ();
@@ -44,8 +44,7 @@ namespace Wordpress {
                 try {
                     var parser = new Json.Parser ();
                     parser.load_from_data (call.response_str);
-                    var json_arr = parser.get_root ().get_array ();
-                    var json_obj = json_arr.get_element (0).get_object ();
+                    var json_obj = parser.get_root ().get_object ();
                     if (json_obj.has_member ("id")) {
                         author_id = (int)json_obj.get_int_member ("id");
                     }
@@ -193,10 +192,9 @@ namespace Wordpress {
 
             debug ("Will upload %s : %s", file_mimetype, local_file_path);
 
-            Bytes buffer = new Bytes.take(file_data);
+            Soup.Buffer buffer = new Soup.Buffer (Soup.MemoryUse.COPY, file_data);
             Soup.Multipart multipart = new Soup.Multipart("multipart/form-data");
             multipart.append_form_file ("file", upload_file.get_path (), file_mimetype, buffer);
-            // multipart.append_form_string ("ref", Soup.URI.encode(upload_file.get_basename ()), file_mimetype, buffer);
 
             WebCall call = new WebCall (endpoint, "media");
             call.set_multipart (multipart);
@@ -311,7 +309,8 @@ namespace Wordpress {
         }
 
         public void set_multipart (Soup.Multipart multipart) {
-            message = new Soup.Message.from_multipart (url, multipart);
+            message = new Soup.Message ("POST", url);
+            multipart.to_message (message.request_headers, message.request_body);
             is_mime = true;
         }
 
@@ -347,23 +346,22 @@ namespace Wordpress {
             }
 
             if (body != "") {
-                Bytes body_bytes = new Bytes.static (body.data);
-                message.set_request_body_from_bytes ("application/json", body_bytes);
-            } else {
-                if (!is_mime) {
-                    add_header ("Content-Type", "application/json");
-                } else {
-                    add_header ("Content-Type", Soup.FORM_MIME_TYPE_MULTIPART);
-                }
+                uint8[] body_data = (uint8[]) body.data;
+                message.set_request ("application/json", Soup.MemoryUse.COPY, body_data);
+            } else if (!is_mime) {
+                add_header ("Content-Type", "application/json");
             }
 
             MainLoop loop = new MainLoop ();
 
-            session.send_and_read_async.begin (message, 0, null, (obj, res) => {
+            session.queue_message (message, (sess, mess) => {
                 try {
-                    var response = session.send_and_read_async.end (res);
-                    response_str = response != null ? (string)response.get_data () : "";
-                    response_code = message.status_code;
+                    response_code = mess.status_code;
+                    string resp = "";
+                    if (mess.response_body != null) {
+                        resp = (string) mess.response_body.flatten ().data;
+                    }
+                    response_str = resp != null ? resp : "";
 
                     if (response_str != null && response_str != "") {
                         debug ("Non-empty body");

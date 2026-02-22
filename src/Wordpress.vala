@@ -1,5 +1,5 @@
 namespace Wordpress {
-    public class Client {
+    public class XmlRpcClient {
         public string endpoint;
         string username;
         private string? authenticated_user;
@@ -8,7 +8,7 @@ namespace Wordpress {
         private int author_id;
         private Gee.Map<string, int> uploaded_images;
 
-        public Client (string url, string user, string token, string id = "1") {
+        public XmlRpcClient (string url, string user, string token, string id = "1") {
             if (url.has_suffix ("/")) {
                 endpoint = url + "xmlrpc.php";
             } else if (url.has_suffix (".php")) {
@@ -149,6 +149,18 @@ namespace Wordpress {
             }
 
             return success;
+        }
+
+        public bool create_post_from_markdown (
+            out string id,
+            string title,
+            string markdown,
+            bool publish = true,
+            string cover_image_url = "",
+            string[]? tags = null)
+        {
+            string html_blocks = MarkdownConverter.to_blocks (markdown);
+            return create_post_simple (out id, title, html_blocks, publish, cover_image_url, tags);
         }
 
         public bool upload_image_simple (

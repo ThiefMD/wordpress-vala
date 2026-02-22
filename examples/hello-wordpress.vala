@@ -4,7 +4,7 @@ public class HelloWordpress {
         string password = "password";
         string endpoint = "https://myblog.url";
 
-        Wordpress.Client client = new Wordpress.Client (endpoint, user, password);
+        Wordpress.XmlRpcClient client = new Wordpress.XmlRpcClient (endpoint, user, password);
         string id;
         string slug;
         if (client.authenticate ()) {
