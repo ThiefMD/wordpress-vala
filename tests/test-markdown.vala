@@ -9,8 +9,10 @@ namespace Wordpress {
             test_nested_lists ();
             test_code_blocks ();
             test_quotes ();
+            test_nested_quotes_and_citations ();
             test_thematic_breaks ();
             test_html_blocks ();
+            test_math_blocks ();
             test_inline_formatting ();
             test_bug_fix_list_continuation ();
         }
@@ -72,8 +74,14 @@ namespace Wordpress {
 
         private static void test_quotes () {
             string md = "> A quote\n> with two lines";
-            string expected = "<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\"><p>A quote</p>\n<p>with two lines</p>\n</blockquote>\n<!-- /wp:quote -->\n\n";
+            string expected = "<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\"><!-- wp:paragraph -->\n<p>A quote</p>\n<!-- /wp:paragraph -->\n<!-- wp:paragraph -->\n<p>with two lines</p>\n<!-- /wp:paragraph -->\n</blockquote>\n<!-- /wp:quote -->\n\n";
             assert_equal (expected, MarkdownConverter.to_blocks (md), "Blockquote");
+        }
+
+        private static void test_nested_quotes_and_citations () {
+            string md = "> Outer\n>> Inner\n> -- Author";
+            string expected = "<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\"><!-- wp:paragraph -->\n<p>Outer</p>\n<!-- /wp:paragraph -->\n<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\"><!-- wp:paragraph -->\n<p>Inner</p>\n<!-- /wp:paragraph -->\n</blockquote>\n<!-- /wp:quote -->\n<cite>Author</cite></blockquote>\n<!-- /wp:quote -->\n\n";
+            assert_equal (expected, MarkdownConverter.to_blocks (md), "Nested Blockquote and Citation");
         }
 
         private static void test_thematic_breaks () {
@@ -89,6 +97,16 @@ namespace Wordpress {
                               "<!-- wp:html -->\n<span>Raw HTML</span>\n<!-- /wp:html -->\n\n" +
                               "<!-- wp:html -->\n</div>\n<!-- /wp:html -->\n\n";
             assert_equal (expected, MarkdownConverter.to_blocks (md), "HTML Blocks");
+        }
+
+        private static void test_math_blocks () {
+            string md = "$$e = mc^2$$";
+            string expected = "<!-- wp:latex {\"latex\":\"e = mc^2\"} -->\n<p class=\"wp-block-latex\">$e = mc^2$</p>\n<!-- /wp:latex -->\n\n";
+            assert_equal (expected, MarkdownConverter.to_blocks (md), "Math Block (Single Line)");
+
+            md = "$$\na^2 + b^2 = c^2\n$$";
+            expected = "<!-- wp:latex {\"latex\":\"a^2 + b^2 = c^2\"} -->\n<p class=\"wp-block-latex\">$a^2 + b^2 = c^2$</p>\n<!-- /wp:latex -->\n\n";
+            assert_equal (expected, MarkdownConverter.to_blocks (md), "Math Block (Multi-line)");
         }
 
         private static void test_inline_formatting () {

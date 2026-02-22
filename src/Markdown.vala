@@ -9,7 +9,8 @@ namespace Wordpress {
         CODE_BLOCK,
         QUOTE,
         THEMATIC_BREAK,
-        HTML
+        HTML,
+        MATH
     }
 
     private class Block : Object {
@@ -68,6 +69,9 @@ namespace Wordpress {
                     case BlockType.QUOTE:
                         builder.append ("<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\">");
                         builder.append (render_inner_blocks (child));
+                        if (child.content != "") {
+                            builder.append ("<cite>%s</cite>".printf (parse_inline (child.content.strip ())));
+                        }
                         builder.append ("</blockquote>\n<!-- /wp:quote -->\n\n");
                         break;
                     case BlockType.THEMATIC_BREAK:
@@ -76,6 +80,10 @@ namespace Wordpress {
                     case BlockType.HTML:
                          builder.append ("<!-- wp:html -->\n%s\n<!-- /wp:html -->\n\n".printf (child.content));
                          break;
+                    case BlockType.MATH:
+                        string escaped_math = Markup.escape_text (child.content.strip ());
+                        builder.append ("<!-- wp:latex {\"latex\":\"%s\"} -->\n<p class=\"wp-block-latex\">$%s$</p>\n<!-- /wp:latex -->\n\n".printf (escaped_math, escaped_math));
+                        break;
                     default:
                         break;
                 }
@@ -86,12 +94,25 @@ namespace Wordpress {
         private static string render_inner_blocks (Block block) {
              var builder = new StringBuilder ();
              foreach (var child in block.children) {
-                 if (child.block_type == BlockType.PARAGRAPH) {
-                     builder.append ("<p>%s</p>\n".printf (parse_inline (child.content.strip ())));
-                 } else if (child.block_type == BlockType.LIST) {
-                     builder.append ("<%s>\n".printf (child.ordered ? "ol" : "ul"));
-                     builder.append (render_list_items (child));
-                     builder.append ("</%s>\n".printf (child.ordered ? "ol" : "ul"));
+                 switch (child.block_type) {
+                    case BlockType.PARAGRAPH:
+                        builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n".printf (parse_inline (child.content.strip ())));
+                        break;
+                    case BlockType.LIST:
+                        builder.append ("<!-- wp:list {\"ordered\":%s} -->\n<%s>\n".printf (child.ordered ? "true" : "false", child.ordered ? "ol" : "ul"));
+                        builder.append (render_list_items (child));
+                        builder.append ("</%s>\n<!-- /wp:list -->\n".printf (child.ordered ? "ol" : "ul"));
+                        break;
+                    case BlockType.QUOTE:
+                        builder.append ("<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\">");
+                        builder.append (render_inner_blocks (child));
+                        if (child.content != "") {
+                            builder.append ("<cite>%s</cite>".printf (parse_inline (child.content.strip ())));
+                        }
+                        builder.append ("</blockquote>\n<!-- /wp:quote -->\n");
+                        break;
+                    default:
+                        break;
                  }
              }
              return builder.str;
@@ -203,6 +224,17 @@ namespace Wordpress {
                 return;
             }
 
+            if (current.block_type == BlockType.MATH && current.open) {
+                if (trimmed.has_suffix ("$$")) {
+                    current.content += line.replace ("$$", "").strip ();
+                    current.open = false;
+                    current = current.parent;
+                } else {
+                    current.content += line + "\n";
+                }
+                return;
+            }
+
             if (trimmed == "") {
                 if (current.block_type == BlockType.PARAGRAPH) {
                     current.open = false;
@@ -250,6 +282,21 @@ namespace Wordpress {
                 return;
             }
 
+            // Math Block
+            if (trimmed.has_prefix ("$$")) {
+                close_paragraph ();
+                var math_block = new Block (BlockType.MATH, indent);
+                if (trimmed.length > 2 && trimmed.has_suffix ("$$")) {
+                    math_block.content = trimmed.substring (2, trimmed.length - 4).strip ();
+                    math_block.open = false;
+                    add_block (math_block);
+                } else {
+                    add_block (math_block);
+                    current = math_block;
+                }
+                return;
+            }
+
             // Headings
             if (trimmed.has_prefix ("#")) {
                 close_paragraph ();
@@ -273,16 +320,58 @@ namespace Wordpress {
             // Blockquotes
             if (trimmed.has_prefix (">")) {
                 close_paragraph ();
-                if (current.block_type != BlockType.QUOTE || indent > current.indent) {
-                    var quote = new Block (BlockType.QUOTE, indent);
-                    add_block (quote);
-                    current = quote;
+                
+                int quote_level = 0;
+                string quote_trimmed = trimmed;
+                while (quote_trimmed.has_prefix (">")) {
+                    quote_level++;
+                    quote_trimmed = quote_trimmed.substring (1).strip ();
+                }
+
+                // Navigate to the correct quote level
+                int current_quote_level = 0;
+                Block? temp = current;
+                while (temp != null && temp != root) {
+                    if (temp.block_type == BlockType.QUOTE) {
+                        current_quote_level++;
+                    }
+                    temp = temp.parent;
+                }
+
+                // If we need more levels, create them
+                while (current_quote_level < quote_level) {
+                    var new_quote = new Block (BlockType.QUOTE, indent);
+                    add_block (new_quote);
+                    current = new_quote;
+                    current_quote_level++;
+                }
+
+                // If we are deeper than needed, move up
+                while (current_quote_level > quote_level && current != root) {
+                    current.open = false;
+                    current = current.parent;
+                    if (current.block_type == BlockType.QUOTE) {
+                        current_quote_level--;
+                    }
                 }
                 
-                string content = trimmed.substring (1).strip ();
-                var para = new Block (BlockType.PARAGRAPH, indent + 1);
-                para.content = content;
-                current.add_child (para);
+                // Ensure current is a QUOTE block at the right level
+                while (current != root && current.block_type != BlockType.QUOTE) {
+                    current.open = false;
+                    current = current.parent;
+                }
+
+                if (quote_trimmed != "") {
+                    // Check for citation: starts with "-- " or "— "
+                    if (quote_trimmed.has_prefix ("-- ") || quote_trimmed.has_prefix ("— ")) {
+                        current.content = quote_trimmed.substring (quote_trimmed.has_prefix ("-- ") ? 3 : 2).strip ();
+                    } else {
+                        var para = new Block (BlockType.PARAGRAPH, indent + 1);
+                        para.content = quote_trimmed;
+                        current.add_child (para);
+                        current = para;
+                    }
+                }
                 return;
             }
 
