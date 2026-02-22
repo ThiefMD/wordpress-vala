@@ -103,12 +103,36 @@ namespace Wordpress {
                  if (item.block_type == BlockType.LIST_ITEM) {
                      builder.append ("<li>%s".printf (parse_inline (item.content.strip ())));
                      foreach (var child in item.children) {
-                         if (child.block_type == BlockType.LIST) {
-                             builder.append ("\n<%s>\n".printf (child.ordered ? "ol" : "ul"));
-                             builder.append (render_list_items (child));
-                             builder.append ("</%s>\n".printf (child.ordered ? "ol" : "ul"));
-                         } else if (child.block_type == BlockType.PARAGRAPH) {
-                             builder.append ("\n<p>%s</p>\n".printf (parse_inline (child.content.strip ())));
+                         switch (child.block_type) {
+                            case BlockType.LIST:
+                                builder.append ("\n<%s>\n".printf (child.ordered ? "ol" : "ul"));
+                                builder.append (render_list_items (child));
+                                builder.append ("</%s>\n".printf (child.ordered ? "ol" : "ul"));
+                                break;
+                            case BlockType.PARAGRAPH:
+                                builder.append ("\n<p>%s</p>\n".printf (parse_inline (child.content.strip ())));
+                                break;
+                            case BlockType.CODE_BLOCK:
+                                builder.append ("\n<pre class=\"wp-block-code\"><code>");
+                                builder.append (Markup.escape_text (child.content)); 
+                                builder.append ("</code></pre>\n");
+                                break;
+                            case BlockType.HEADING:
+                                builder.append ("\n<h%d>%s</h%d>\n".printf (child.level, parse_inline (child.content.strip ()), child.level));
+                                break;
+                            case BlockType.QUOTE:
+                                builder.append ("\n<blockquote class=\"wp-block-quote\">");
+                                builder.append (render_inner_blocks (child));
+                                builder.append ("</blockquote>\n");
+                                break;
+                            case BlockType.THEMATIC_BREAK:
+                                builder.append ("\n<hr class=\"wp-block-separator\"/>\n");
+                                break;
+                            case BlockType.HTML:
+                                builder.append ("\n%s\n".printf (child.content));
+                                break;
+                            default:
+                                break;
                          }
                      }
                      builder.append ("</li>\n");
@@ -183,6 +207,10 @@ namespace Wordpress {
                 if (current.block_type == BlockType.PARAGRAPH) {
                     current.open = false;
                     current = current.parent;
+                } else if (current.block_type == BlockType.LIST_ITEM) {
+                    // We don't necessarily close the list item immediately,
+                    // but we might want to mark it as ready to close if the next line is not indented.
+                    // For now, let's keep it open to allow for multi-paragraph list items.
                 }
                 return;
             }
@@ -191,6 +219,17 @@ namespace Wordpress {
             while (current != root && indent < current.indent) {
                 current.open = false;
                 current = current.parent;
+            }
+
+            // Special case for list items: if indentation is 0 and it's not a list marker, close the list
+            if (current != root && indent == 0 && (current.block_type == BlockType.LIST || current.block_type == BlockType.LIST_ITEM)) {
+                bool is_new_list_marker = trimmed.has_prefix ("* ") || trimmed.has_prefix ("- ") || trimmed.has_prefix ("+ ") || Regex.match_simple ("^(\\d+)\\. (.*)", trimmed);
+                if (!is_new_list_marker) {
+                    while (current != root && (current.block_type == BlockType.LIST || current.block_type == BlockType.LIST_ITEM)) {
+                        current.open = false;
+                        current = current.parent;
+                    }
+                }
             }
 
             // Code block

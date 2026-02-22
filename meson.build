@@ -19,3 +19,4 @@ libwordpress_deps = [
 subdir('vapi')
 subdir('src')
 subdir('examples')
+subdir('tests')
