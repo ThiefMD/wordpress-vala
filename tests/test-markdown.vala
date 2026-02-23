@@ -18,6 +18,7 @@ namespace Wordpress {
             test_reference_style ();
             test_footnotes ();
             test_multiline_footnotes ();
+            test_setext_headings ();
             test_bug_fix_list_continuation ();
         }
 
@@ -89,8 +90,9 @@ namespace Wordpress {
         }
 
         private static void test_thematic_breaks () {
-            string md = "---\n***";
+            string md = "---\n***\n* * *";
             string expected = "<!-- wp:separator -->\n<hr class=\"wp-block-separator\"/>\n<!-- /wp:separator -->\n\n" +
+                              "<!-- wp:separator -->\n<hr class=\"wp-block-separator\"/>\n<!-- /wp:separator -->\n\n" +
                               "<!-- wp:separator -->\n<hr class=\"wp-block-separator\"/>\n<!-- /wp:separator -->\n\n";
             assert_equal (expected, MarkdownConverter.to_blocks (md), "Thematic Breaks");
         }
@@ -165,6 +167,13 @@ namespace Wordpress {
             string md = "Text.[^1]\n\n[^1]: Line 1\n    Line 2";
             string actual = MarkdownConverter.to_blocks (md);
             assert_true (actual.contains ("Line 1<br/>Line 2"), "Multiline footnote content contains <br/>");
+        }
+
+        private static void test_setext_headings () {
+            string md = "Heading 1\n=========\n\nHeading 2\n---------";
+            string expected = "<!-- wp:heading {\"level\":1} -->\n<h1>Heading 1</h1>\n<!-- /wp:heading -->\n\n" +
+                              "<!-- wp:heading {\"level\":2} -->\n<h2>Heading 2</h2>\n<!-- /wp:heading -->\n\n";
+            assert_equal (expected, MarkdownConverter.to_blocks (md), "Setext Headings");
         }
 
         private static void test_bug_fix_list_continuation () {

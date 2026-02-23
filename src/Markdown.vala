@@ -1,17 +1,7 @@
 namespace Wordpress {
 
     private enum BlockType {
-        DOCUMENT,
-        HEADING,
-        PARAGRAPH,
-        LIST,
-        LIST_ITEM,
-        CODE_BLOCK,
-        QUOTE,
-        THEMATIC_BREAK,
-        HTML,
-        MATH,
-        IMAGE
+        DOCUMENT, HEADING, PARAGRAPH, LIST, LIST_ITEM, CODE_BLOCK, QUOTE, THEMATIC_BREAK, HTML, MATH, IMAGE
     }
 
     private class Block : Object {
@@ -342,6 +332,52 @@ namespace Wordpress {
                 return;
             }
 
+            // Thematic break (Horizontal Rule)
+            // Supports: ***, ---, ___, * * *, - - -, _ _ _
+            // We must be careful: --- can be a Setext H2 underline if it follows a paragraph.
+            // In CommonMark, a thematic break with hyphens cannot follow a paragraph without an empty line,
+            // or it would be a Setext heading. However, thematic breaks with * or _ can.
+            // For simplicity and matching common behavior:
+            // If it's * or _ based, it's always a thematic break.
+            // If it's - based, it's a thematic break IF:
+            // 1. It has spaces between hyphens (e.g., - - -)
+            // 2. Or it doesn't follow a paragraph.
+            
+            bool is_thematic = false;
+            if (Regex.match_simple ("^(\\s*\\*\\s*){3,}$|^(\\s*_\\s*){3,}$", trimmed)) {
+                is_thematic = true;
+            } else if (Regex.match_simple ("^(\\s*-\\s*){3,}$", trimmed)) {
+                // If it's a plain --- (no internal spaces) and follows a paragraph, it's Setext H2.
+                // Otherwise, it's a thematic break.
+                if (trimmed.contains (" ") || !(current.block_type == BlockType.PARAGRAPH && current.open)) {
+                    is_thematic = true;
+                }
+            }
+
+            if (is_thematic) {
+                 close_paragraph ();
+                 add_block (new Block (BlockType.THEMATIC_BREAK, indent));
+                 return;
+            }
+
+            // Setext Heading (Level 1)
+            if (trimmed != "" && Regex.match_simple ("^=+ *$", trimmed) && current.block_type == BlockType.PARAGRAPH && current.open) {
+                current.block_type = BlockType.HEADING;
+                current.level = 1;
+                current.open = false;
+                current = current.parent;
+                return;
+            }
+
+            // Setext Heading (Level 2)
+            if (trimmed != "" && Regex.match_simple ("^-+ *$", trimmed) && current.block_type == BlockType.PARAGRAPH && current.open) {
+                current.block_type = BlockType.HEADING;
+                current.level = 2;
+                current.open = false;
+                current = current.parent;
+                return;
+            }
+
             if (trimmed == "") {
                 if (current.block_type == BlockType.PARAGRAPH) {
                     current.open = false;
@@ -554,13 +590,6 @@ namespace Wordpress {
                 current.add_child (item);
                 current = item;
                 return;
-            }
-
-            // Thematic break
-            if (Regex.match_simple ("^(\\*{3,}|-{3,}|_{3,})$", trimmed)) {
-                 close_paragraph ();
-                 add_block (new Block (BlockType.THEMATIC_BREAK, indent));
-                 return;
             }
 
             // Image block
