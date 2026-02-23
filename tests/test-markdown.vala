@@ -22,6 +22,8 @@ namespace Wordpress {
             test_strikethrough ();
             test_task_lists ();
             test_tables ();
+            test_gallery ();
+            test_escapes ();
             test_bug_fix_list_continuation ();
         }
 
@@ -198,6 +200,27 @@ namespace Wordpress {
             assert_true (actual.contains ("<!-- wp:table -->"), "Table block start");
             assert_true (actual.contains ("<thead><tr><th>Head 1</th><th>Head 2</th></tr></thead>"), "Table header");
             assert_true (actual.contains ("<tbody><tr><td>Val 1</td><td>Val 2</td></tr></tbody>"), "Table body");
+        }
+
+        private static void test_gallery () {
+            string md = "![Img 1](url1)\n![Img 2](url2)";
+            string actual = MarkdownConverter.to_blocks (md);
+            assert_true (actual.contains ("<!-- wp:gallery"), "Gallery block start");
+            assert_true (actual.contains ("<img src=\"url1\""), "Image 1 in gallery");
+            assert_true (actual.contains ("<img src=\"url2\""), "Image 2 in gallery");
+            assert_true (!actual.contains ("\n\n<!-- wp:image"), "Images should be grouped, not separate blocks");
+        }
+
+        private static void test_escapes () {
+            string md = "This is \\*not italic\\* and this is a backslash: \\\\";
+            string actual = MarkdownConverter.to_blocks (md);
+            assert_true (actual.contains ("This is *not italic*"), "Escaped asterisks");
+            assert_true (actual.contains ("backslash: \\"), "Escaped backslash");
+            assert_true (!actual.contains ("<em>"), "No italics when escaped");
+
+            md = "Code with escape: `\\*`";
+            actual = MarkdownConverter.to_blocks (md);
+            assert_true (actual.contains ("<code>\\*</code>"), "Backslash in code span remains");
         }
 
         private static void test_bug_fix_list_continuation () {

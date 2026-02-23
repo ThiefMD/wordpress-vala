@@ -1,7 +1,7 @@
 namespace Wordpress {
 
     private enum BlockType {
-        DOCUMENT, HEADING, PARAGRAPH, LIST, LIST_ITEM, CODE_BLOCK, QUOTE, THEMATIC_BREAK, HTML, MATH, IMAGE, TABLE
+        DOCUMENT, HEADING, PARAGRAPH, LIST, LIST_ITEM, CODE_BLOCK, QUOTE, THEMATIC_BREAK, HTML, MATH, IMAGE, TABLE, GALLERY
     }
 
     private class Block : Object {
@@ -125,6 +125,13 @@ namespace Wordpress {
                         render_table (child.content, builder, references, footnote_ctx);
                         builder.append ("</table></figure>\n<!-- /wp:table -->\n\n");
                         break;
+                    case BlockType.GALLERY:
+                        builder.append ("<!-- wp:gallery {\"linkTo\":\"none\"} -->\n<figure class=\"wp-block-gallery has-nested-images columns-default is-cropped\">");
+                        foreach (var img in child.children) {
+                            builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (img.content, img.alt));
+                        }
+                        builder.append ("</figure>\n<!-- /wp:gallery -->\n\n");
+                        break;
                     default:
                         break;
                 }
@@ -172,6 +179,13 @@ namespace Wordpress {
                         break;
                     case BlockType.IMAGE:
                         builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, child.alt));
+                        break;
+                    case BlockType.GALLERY:
+                        builder.append ("<!-- wp:gallery {\"linkTo\":\"none\"} -->\n<figure class=\"wp-block-gallery has-nested-images columns-default is-cropped\">");
+                        foreach (var img in child.children) {
+                            builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (img.content, img.alt));
+                        }
+                        builder.append ("</figure>\n<!-- /wp:gallery -->\n");
                         break;
                     case BlockType.LIST:
                         builder.append ("<!-- wp:list {\"ordered\":%s} -->\n<%s>\n".printf (child.ordered ? "true" : "false", child.ordered ? "ol" : "ul"));
@@ -221,6 +235,13 @@ namespace Wordpress {
                             case BlockType.IMAGE:
                                 builder.append ("\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, child.alt));
                                 break;
+                            case BlockType.GALLERY:
+                                builder.append ("\n<!-- wp:gallery {\"linkTo\":\"none\"} -->\n<figure class=\"wp-block-gallery has-nested-images columns-default is-cropped\">");
+                                foreach (var img in child.children) {
+                                    builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (img.content, img.alt));
+                                }
+                                builder.append ("</figure>\n<!-- /wp:gallery -->\n");
+                                break;
                             case BlockType.CODE_BLOCK:
                                 builder.append ("\n<pre class=\"wp-block-code\"><code>");
                                 builder.append (Markup.escape_text (child.content)); 
@@ -252,7 +273,26 @@ namespace Wordpress {
 
         private static string parse_inline (string text, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
              string result = text;
+             var code_spans = new Gee.ArrayList<string> ();
             try {
+                // 1. Protect code spans
+                var code_span_regex = new Regex ("`(.*?)`|``(.*?)``");
+                result = code_span_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
+                    string content = match_info.fetch (1);
+                    if (content == null) content = match_info.fetch (2);
+                    code_spans.add (content);
+                    res.append ("\x03%d\x04".printf (code_spans.size - 1));
+                    return false;
+                });
+
+                // 2. Protect escapes
+                var escape_regex = new Regex ("\\\\([\\\\\\*\\_\\~\\!\\[\\]\\(\\)\\#\\|\\`\\.])");
+                result = escape_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
+                    string c = match_info.fetch (1);
+                    res.append ("\x01%d\x02".printf ((int)c[0]));
+                    return false;
+                });
+
                 var bold_regex = new Regex ("\\*\\*(.*?)\\*\\*");
                 result = bold_regex.replace (result, -1, 0, "<strong>\\1</strong>");
                 
@@ -315,8 +355,21 @@ namespace Wordpress {
                     return false;
                 });
 
-                var code_regex = new Regex ("`(.*?)`");
-                result = code_regex.replace (result, -1, 0, "<code>\\1</code>");
+                // 3. Restore escapes
+                var restore_escape_regex = new Regex ("\x01(\\d+)\x02");
+                result = restore_escape_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
+                    int code = int.parse (match_info.fetch (1));
+                    res.append (((char)code).to_string ());
+                    return false;
+                });
+
+                // 4. Restore code spans
+                var restore_code_regex = new Regex ("\x03(\\d+)\x04");
+                result = restore_code_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
+                    int index = int.parse (match_info.fetch (1));
+                    res.append ("<code>%s</code>".printf (code_spans.get (index)));
+                    return false;
+                });
 
             } catch (Error e) {
                 warning ("Inline parsing error: %s", e.message);
@@ -688,6 +741,22 @@ namespace Wordpress {
 
         private void add_block (Block block) {
             if (current.block_type == BlockType.DOCUMENT || current.block_type == BlockType.QUOTE || current.block_type == BlockType.LIST_ITEM) {
+                // Check for consecutive images to form a gallery
+                if (block.block_type == BlockType.IMAGE && current.children.size > 0) {
+                    var last = current.children.get (current.children.size - 1);
+                    if (last.block_type == BlockType.GALLERY) {
+                        last.add_child (block);
+                        return;
+                    } else if (last.block_type == BlockType.IMAGE) {
+                        // Upgrade to gallery
+                        current.children.remove_at (current.children.size - 1);
+                        var gallery = new Block (BlockType.GALLERY, last.indent);
+                        gallery.add_child (last);
+                        gallery.add_child (block);
+                        current.add_child (gallery);
+                        return;
+                    }
+                }
                 current.add_child (block);
             } else if (current.parent != null) {
                 current = current.parent;
