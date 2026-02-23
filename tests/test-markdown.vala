@@ -19,6 +19,9 @@ namespace Wordpress {
             test_footnotes ();
             test_multiline_footnotes ();
             test_setext_headings ();
+            test_strikethrough ();
+            test_task_lists ();
+            test_tables ();
             test_bug_fix_list_continuation ();
         }
 
@@ -174,6 +177,27 @@ namespace Wordpress {
             string expected = "<!-- wp:heading {\"level\":1} -->\n<h1>Heading 1</h1>\n<!-- /wp:heading -->\n\n" +
                               "<!-- wp:heading {\"level\":2} -->\n<h2>Heading 2</h2>\n<!-- /wp:heading -->\n\n";
             assert_equal (expected, MarkdownConverter.to_blocks (md), "Setext Headings");
+        }
+
+        private static void test_strikethrough () {
+            string md = "This is ~~deleted~~ text.";
+            string actual = MarkdownConverter.to_blocks (md);
+            assert_true (actual.contains ("<s>deleted</s>"), "Strikethrough");
+        }
+
+        private static void test_task_lists () {
+            string md = "* [ ] Todo\n* [x] Done";
+            string actual = MarkdownConverter.to_blocks (md);
+            assert_true (actual.contains ("<input type=\"checkbox\" disabled=\"\" /> Todo"), "Unchecked task");
+            assert_true (actual.contains ("<input type=\"checkbox\" checked=\"\" disabled=\"\" /> Done"), "Checked task");
+        }
+
+        private static void test_tables () {
+            string md = "| Head 1 | Head 2 |\n| --- | --- |\n| Val 1 | Val 2 |";
+            string actual = MarkdownConverter.to_blocks (md);
+            assert_true (actual.contains ("<!-- wp:table -->"), "Table block start");
+            assert_true (actual.contains ("<thead><tr><th>Head 1</th><th>Head 2</th></tr></thead>"), "Table header");
+            assert_true (actual.contains ("<tbody><tr><td>Val 1</td><td>Val 2</td></tr></tbody>"), "Table body");
         }
 
         private static void test_bug_fix_list_continuation () {

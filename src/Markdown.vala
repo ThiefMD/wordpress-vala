@@ -1,7 +1,7 @@
 namespace Wordpress {
 
     private enum BlockType {
-        DOCUMENT, HEADING, PARAGRAPH, LIST, LIST_ITEM, CODE_BLOCK, QUOTE, THEMATIC_BREAK, HTML, MATH, IMAGE
+        DOCUMENT, HEADING, PARAGRAPH, LIST, LIST_ITEM, CODE_BLOCK, QUOTE, THEMATIC_BREAK, HTML, MATH, IMAGE, TABLE
     }
 
     private class Block : Object {
@@ -120,11 +120,47 @@ namespace Wordpress {
                     case BlockType.IMAGE:
                         builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n\n".printf (child.content, child.alt));
                         break;
+                    case BlockType.TABLE:
+                        builder.append ("<!-- wp:table -->\n<figure class=\"wp-block-table\"><table>");
+                        render_table (child.content, builder, references, footnote_ctx);
+                        builder.append ("</table></figure>\n<!-- /wp:table -->\n\n");
+                        break;
                     default:
                         break;
                 }
             }
             return builder.str;
+        }
+
+        private static void render_table (string table_content, StringBuilder builder, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
+            var lines = table_content.strip ().split ("\n");
+            if (lines.length < 2) return;
+
+            // Header
+            builder.append ("<thead><tr>");
+            var header_cells = lines[0].split ("|");
+            foreach (var cell in header_cells) {
+                string trimmed = cell.strip ();
+                if (trimmed == "" && (cell == header_cells[0] || cell == header_cells[header_cells.length-1])) continue;
+                builder.append ("<th>%s</th>".printf (parse_inline (trimmed, references, footnote_ctx)));
+            }
+            builder.append ("</tr></thead>");
+
+            // Body
+            if (lines.length > 2) {
+                builder.append ("<tbody>");
+                for (int i = 2; i < lines.length; i++) {
+                    builder.append ("<tr>");
+                    var cells = lines[i].split ("|");
+                    foreach (var cell in cells) {
+                        string trimmed = cell.strip ();
+                        if (trimmed == "" && (cell == cells[0] || cell == cells[cells.length-1])) continue;
+                        builder.append ("<td>%s</td>".printf (parse_inline (trimmed, references, footnote_ctx)));
+                    }
+                    builder.append ("</tr>");
+                }
+                builder.append ("</tbody>");
+            }
         }
         
         private static string render_inner_blocks (Block block, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
@@ -161,7 +197,17 @@ namespace Wordpress {
             var builder = new StringBuilder ();
             foreach (var item in list_block.children) {
                  if (item.block_type == BlockType.LIST_ITEM) {
-                     builder.append ("<li>%s".printf (parse_inline (item.content.strip (), references, footnote_ctx)));
+                     string content = item.content.strip ();
+                     string task_prefix = "";
+                     if (content.has_prefix ("[ ] ")) {
+                         task_prefix = "<input type=\"checkbox\" disabled=\"\" /> ";
+                         content = content.substring (4);
+                     } else if (content.has_prefix ("[x] ")) {
+                         task_prefix = "<input type=\"checkbox\" checked=\"\" disabled=\"\" /> ";
+                         content = content.substring (4);
+                     }
+
+                     builder.append ("<li>%s%s".printf (task_prefix, parse_inline (content, references, footnote_ctx)));
                      foreach (var child in item.children) {
                          switch (child.block_type) {
                             case BlockType.LIST:
@@ -212,6 +258,9 @@ namespace Wordpress {
                 
                 var italic_regex = new Regex ("\\*(.*?)\\*");
                 result = italic_regex.replace (result, -1, 0, "<em>\\1</em>");
+
+                var strike_regex = new Regex ("~~(.*?)~~");
+                result = strike_regex.replace (result, -1, 0, "<s>\\1</s>");
 
                 // Standard inline image
                 var img_regex = new Regex ("!\\[(.*?)\\]\\((.*?)\\)");
@@ -332,23 +381,21 @@ namespace Wordpress {
                 return;
             }
 
+            if (current.block_type == BlockType.TABLE && current.open) {
+                if (trimmed.has_prefix ("|")) {
+                    current.content += trimmed + "\n";
+                    return;
+                } else {
+                    current.open = false;
+                    current = current.parent;
+                }
+            }
+
             // Thematic break (Horizontal Rule)
-            // Supports: ***, ---, ___, * * *, - - -, _ _ _
-            // We must be careful: --- can be a Setext H2 underline if it follows a paragraph.
-            // In CommonMark, a thematic break with hyphens cannot follow a paragraph without an empty line,
-            // or it would be a Setext heading. However, thematic breaks with * or _ can.
-            // For simplicity and matching common behavior:
-            // If it's * or _ based, it's always a thematic break.
-            // If it's - based, it's a thematic break IF:
-            // 1. It has spaces between hyphens (e.g., - - -)
-            // 2. Or it doesn't follow a paragraph.
-            
             bool is_thematic = false;
             if (Regex.match_simple ("^(\\s*\\*\\s*){3,}$|^(\\s*_\\s*){3,}$", trimmed)) {
                 is_thematic = true;
             } else if (Regex.match_simple ("^(\\s*-\\s*){3,}$", trimmed)) {
-                // If it's a plain --- (no internal spaces) and follows a paragraph, it's Setext H2.
-                // Otherwise, it's a thematic break.
                 if (trimmed.contains (" ") || !(current.block_type == BlockType.PARAGRAPH && current.open)) {
                     is_thematic = true;
                 }
@@ -376,6 +423,16 @@ namespace Wordpress {
                 current.open = false;
                 current = current.parent;
                 return;
+            }
+
+            // Table detection
+            if (trimmed.has_prefix ("|") && Regex.match_simple ("^\\|[\\| :\\-]+\\|$", trimmed)) {
+                if (current.block_type == BlockType.PARAGRAPH && current.open && current.content.strip ().has_prefix ("|")) {
+                    string header = current.content.strip ();
+                    current.block_type = BlockType.TABLE;
+                    current.content = header + "\n" + trimmed + "\n";
+                    return;
+                }
             }
 
             if (trimmed == "") {
@@ -608,7 +665,7 @@ namespace Wordpress {
 
             // Paragraph or continuation
             if (current.block_type == BlockType.PARAGRAPH && current.open) {
-                current.content += " " + trimmed;
+                current.content += "\n" + trimmed;
             } else if (current.block_type == BlockType.LIST_ITEM) {
                 var para = new Block (BlockType.PARAGRAPH, indent);
                 para.content = trimmed;
