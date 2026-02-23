@@ -54,7 +54,7 @@ Authentication with JWT extension.
 ## XML-RPC Authentication
 
 ```vala
-Wordpress.XmlRpcClient client = new Wordpress.XmlRpcClient (url, username, password);
+Wordpress.Client client = Client (url, username, password);
 if (client.authenticate ()) {
     print ("You logged in!");
 }
@@ -63,23 +63,24 @@ if (client.authenticate ()) {
 ## XML-RPC Simple Post
 
 ```vala
-Wordpress.XmlRpcClient client = new Wordpress.XmlRpcClient (url, username, password);
+Wordpress.Client client = Client (url, username, password);
 
 string id;
 if (client.create_post_simple (out id,
     "Hello world",
     "<p>Hello wordpress</p>"))
 {
-    print ("New post at %s/?p=%s", url, id);
+    print ("New post at %s/?p=%s", url, slug);
 }
 ```
 
 ## XML-RPC Simple Image Upload
 
 ```vala
-Wordpress.XmlRpcClient client = new Wordpress.XmlRpcClient (url, username, password);
+Wordpress.Client client = Client (url, username, password);
 
-string file_url;
+string id;
+string slug;
 if (client.upload_image_simple (
     out file_url,
     "/home/user/Pictures/photo.jpeg"))
@@ -91,7 +92,7 @@ if (client.upload_image_simple (
 ## REST Authentication
 
 ```vala
-Wordpress.RestClient client = new Wordpress.RestClient (url, username, app_password);
+Wordpress.Client client = Client (url, username, app_password);
 if (client.authenticate ()) {
     print ("You logged in!");
 }
@@ -100,7 +101,7 @@ if (client.authenticate ()) {
 ## REST Simple Post
 
 ```vala
-Wordpress.RestClient client = new Wordpress.RestClient (url, username, app_password);
+Wordpress.Client client = Client (url, username, app_password);
 
 string id;
 if (client.create_post_simple (out id,
@@ -114,7 +115,7 @@ if (client.create_post_simple (out id,
 ## REST Simple Image Upload
 
 ```vala
-Wordpress.RestClient client = new Wordpress.RestClient (url, username, app_password);
+Wordpress.Client client = Client (url, username, app_password);
 
 string file_url;
 int media_id;
