@@ -1,5 +1,5 @@
 namespace Wordpress {
-    public class RestClient {
+    public class Client {
         public string endpoint;
         public string displayname;
         public string blog_url;
@@ -10,7 +10,7 @@ namespace Wordpress {
         private int author_id;
         private Gee.Map<string, int> uploaded_images;
 
-        public RestClient (string url, string user, string token, string id = "1") {
+        public Client (string url, string user, string token, string id = "1") {
             author_id = -1;
             if (url.has_suffix ("/")) {
                 endpoint = url + "wp-json/wp/v2/";
