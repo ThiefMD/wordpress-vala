@@ -107,7 +107,7 @@ namespace Wordpress {
             make_post.set_body (request_body);
             make_post.add_header ("Authorization", authenticated_user);
 
-            print (request_body);
+            debug ("Request body: %s", request_body);
 
             make_post.perform_call ();
 
