@@ -225,7 +225,7 @@ namespace Wordpress {
         }
     }
 
-    public class ErrorRespose : GLib.Object, Json.Serializable {
+    public class ErrorResponse : GLib.Object, Json.Serializable {
         public string code { get; set; }
         public string message { get; set; }
     }
@@ -295,7 +295,7 @@ namespace Wordpress {
         public string response_str;
         public uint response_code;
 
-        public ErrorRespose? err_resp;
+        public ErrorResponse? err_resp;
 
         public WebCall (string endpoint, string api) {
             url = endpoint + api;
@@ -376,9 +376,9 @@ namespace Wordpress {
                             parser.load_from_data (response_str);
                             Json.Node data = parser.get_root ();
                             err_resp = Json.gobject_deserialize (
-                                typeof (ErrorRespose),
+                                typeof (ErrorResponse),
                                 data)
-                                as ErrorRespose;
+                                as ErrorResponse;
                         } catch (Error e) {
                             warning ("Unable to perform call: %s", e.message);
                         }
