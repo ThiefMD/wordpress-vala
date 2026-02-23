@@ -367,7 +367,7 @@ namespace Wordpress {
                         debug ("Non-empty body");
                     }
 
-                    if (response_code >= 200 && response_code <= 250) {
+                    if (response_code >= 200 && response_code <= 299) {
                         success = true;
                         debug ("Success HTTP code");
                     } else {
