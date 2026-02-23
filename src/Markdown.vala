@@ -10,7 +10,8 @@ namespace Wordpress {
         QUOTE,
         THEMATIC_BREAK,
         HTML,
-        MATH
+        MATH,
+        IMAGE
     }
 
     private class Block : Object {
@@ -18,6 +19,7 @@ namespace Wordpress {
         public int level { get; set; } // For headings
         public bool ordered { get; set; } // For lists
         public string content { get; set; }
+        public string alt { get; set; } // For images
         public Gee.ArrayList<Block> children { get; set; }
         public Block parent { get; set; }
         public bool open { get; set; }
@@ -26,6 +28,7 @@ namespace Wordpress {
         public Block (BlockType type, int indent = 0) {
             this.block_type = type;
             this.content = "";
+            this.alt = "";
             this.children = new Gee.ArrayList<Block> ();
             this.open = true;
             this.indent = indent;
@@ -78,11 +81,14 @@ namespace Wordpress {
                         builder.append ("<!-- wp:separator -->\n<hr class=\"wp-block-separator\"/>\n<!-- /wp:separator -->\n\n");
                         break;
                     case BlockType.HTML:
-                         builder.append ("<!-- wp:html -->\n%s\n<!-- /wp:html -->\n\n".printf (child.content));
-                         break;
+                        builder.append ("<!-- wp:html -->\n%s\n<!-- /wp:html -->\n\n".printf (child.content));
+                        break;
                     case BlockType.MATH:
                         string escaped_math = Markup.escape_text (child.content.strip ());
                         builder.append ("<!-- wp:latex {\"latex\":\"%s\"} -->\n<p class=\"wp-block-latex\">$%s$</p>\n<!-- /wp:latex -->\n\n".printf (escaped_math, escaped_math));
+                        break;
+                    case BlockType.IMAGE:
+                        builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n\n".printf (child.content, child.alt));
                         break;
                     default:
                         break;
@@ -97,6 +103,9 @@ namespace Wordpress {
                  switch (child.block_type) {
                     case BlockType.PARAGRAPH:
                         builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n".printf (parse_inline (child.content.strip ())));
+                        break;
+                    case BlockType.IMAGE:
+                        builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, child.alt));
                         break;
                     case BlockType.LIST:
                         builder.append ("<!-- wp:list {\"ordered\":%s} -->\n<%s>\n".printf (child.ordered ? "true" : "false", child.ordered ? "ol" : "ul"));
@@ -132,6 +141,9 @@ namespace Wordpress {
                                 break;
                             case BlockType.PARAGRAPH:
                                 builder.append ("\n<p>%s</p>\n".printf (parse_inline (child.content.strip ())));
+                                break;
+                            case BlockType.IMAGE:
+                                builder.append ("\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, child.alt));
                                 break;
                             case BlockType.CODE_BLOCK:
                                 builder.append ("\n<pre class=\"wp-block-code\"><code>");
@@ -171,14 +183,14 @@ namespace Wordpress {
                 var italic_regex = new Regex ("\\*(.*?)\\*");
                 result = italic_regex.replace (result, -1, 0, "<em>\\1</em>");
 
+                var img_regex = new Regex ("!\\[(.*?)\\]\\((.*?)\\)");
+                result = img_regex.replace (result, -1, 0, "<img src=\"\\2\" alt=\"\\1\" />");
+
                 var link_regex = new Regex ("\\[(.*?)\\]\\((.*?)\\)");
                 result = link_regex.replace (result, -1, 0, "<a href=\"\\2\">\\1</a>");
                 
                 var code_regex = new Regex ("`(.*?)`");
                 result = code_regex.replace (result, -1, 0, "<code>\\1</code>");
-                
-                var img_regex = new Regex ("!\\[(.*?)\\]\\((.*?)\\)");
-                result = img_regex.replace (result, -1, 0, "<img src=\"\\2\" alt=\"\\1\" />");
 
             } catch (Error e) {
                 warning ("Inline parsing error: %s", e.message);
@@ -431,6 +443,20 @@ namespace Wordpress {
                  add_block (new Block (BlockType.THEMATIC_BREAK, indent));
                  return;
             }
+
+            // Image block
+            try {
+                var img_regex = new Regex ("^!\\[(.*?)\\]\\((.*?)\\)$");
+                MatchInfo match_info;
+                if (img_regex.match (trimmed, 0, out match_info)) {
+                    close_paragraph ();
+                    var image_block = new Block (BlockType.IMAGE, indent);
+                    image_block.alt = match_info.fetch (1);
+                    image_block.content = match_info.fetch (2); // URL
+                    add_block (image_block);
+                    return;
+                }
+            } catch (Error e) {}
 
             // Paragraph or continuation
             if (current.block_type == BlockType.PARAGRAPH && current.open) {

@@ -14,6 +14,7 @@ namespace Wordpress {
             test_html_blocks ();
             test_math_blocks ();
             test_inline_formatting ();
+            test_image_blocks ();
             test_bug_fix_list_continuation ();
         }
 
@@ -117,6 +118,20 @@ namespace Wordpress {
             assert_true (actual.contains ("<em>italic</em>"), "Inline Italic");
             assert_true (actual.contains ("<a href=\"https://example.com\">link</a>"), "Inline Link");
             assert_true (actual.contains ("<code>code</code>"), "Inline Code");
+        }
+
+        private static void test_image_blocks () {
+            string md = "![Alt text](https://example.com/image.png)";
+            string expected = "<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"https://example.com/image.png\" alt=\"Alt text\"/></figure>\n<!-- /wp:image -->\n\n";
+            assert_equal (expected, MarkdownConverter.to_blocks (md), "Image Block");
+
+            md = "Paragraph with ![Inline Image](https://example.com/inline.png)";
+            string actual = MarkdownConverter.to_blocks (md);
+            assert_true (actual.contains ("<!-- wp:paragraph -->"), "Inline image remains in paragraph");
+            if (!actual.contains ("<img src=\"https://example.com/inline.png\" alt=\"Inline Image\" />")) {
+                print ("DEBUG ACTUAL: [%s]\n", actual);
+            }
+            assert_true (actual.contains ("<img src=\"https://example.com/inline.png\" alt=\"Inline Image\" />"), "Inline image rendered as img tag");
         }
 
         private static void test_bug_fix_list_continuation () {
