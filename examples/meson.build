@@ -14,22 +14,7 @@ if get_option('enable_examples')
   executable('hello-wordpress-rest',
     [
       'hello-wordpress-rest.vala',
-      join_paths(meson.source_root(), 'src', 'WordpressRest.vala'),
-      join_paths(meson.source_root(), 'src', 'Markdown.vala'),
-    ],
-    dependencies: libwordpress_deps,
-    vala_args: [
-        '--pkg=posix',
-        '--vapidir=' + meson.source_root() + '/vapi'
-        ],
-    install: false
-  )
-
-  executable('hello-markdown-rest',
-    [
-      'hello-markdown-rest.vala',
-      join_paths(meson.source_root(), 'src', 'WordpressRest.vala'),
-      join_paths(meson.source_root(), 'src', 'Markdown.vala'),
+      join_paths(meson.source_root(), 'src', 'Wordpress3.vala'),
     ],
     dependencies: libwordpress_deps,
     vala_args: [

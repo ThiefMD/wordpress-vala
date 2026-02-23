@@ -1,5 +1,5 @@
 namespace Wordpress {
-    public class XmlRpcClient {
+    public class Client {
         public string endpoint;
         string username;
         private string? authenticated_user;
@@ -8,7 +8,7 @@ namespace Wordpress {
         private int author_id;
         private Gee.Map<string, int> uploaded_images;
 
-        public XmlRpcClient (string url, string user, string token, string id = "1") {
+        public Client (string url, string user, string token, string id = "1") {
             if (url.has_suffix ("/")) {
                 endpoint = url + "xmlrpc.php";
             } else if (url.has_suffix (".php")) {
