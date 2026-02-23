@@ -45,23 +45,23 @@ namespace Wordpress {
         public static string to_blocks (string markdown) {
             var parser = new Parser ();
             var root = parser.parse (markdown);
-            return render (root);
+            return render (root, parser.references);
         }
 
-        private static string render (Block block) {
+        private static string render (Block block, Gee.Map<string, string> references) {
             var builder = new StringBuilder ();
             
             foreach (var child in block.children) {
                 switch (child.block_type) {
                     case BlockType.HEADING:
-                        builder.append ("<!-- wp:heading {\"level\":%d} -->\n<h%d>%s</h%d>\n<!-- /wp:heading -->\n\n".printf (child.level, child.level, parse_inline (child.content.strip ()), child.level));
+                        builder.append ("<!-- wp:heading {\"level\":%d} -->\n<h%d>%s</h%d>\n<!-- /wp:heading -->\n\n".printf (child.level, child.level, parse_inline (child.content.strip (), references), child.level));
                         break;
                     case BlockType.PARAGRAPH:
-                        builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n\n".printf (parse_inline (child.content.strip ())));
+                        builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n\n".printf (parse_inline (child.content.strip (), references)));
                         break;
                     case BlockType.LIST:
                         builder.append ("<!-- wp:list {\"ordered\":%s} -->\n<%s>\n".printf (child.ordered ? "true" : "false", child.ordered ? "ol" : "ul"));
-                        builder.append (render_list_items (child));
+                        builder.append (render_list_items (child, references));
                         builder.append ("</%s>\n<!-- /wp:list -->\n\n".printf (child.ordered ? "ol" : "ul"));
                         break;
                     case BlockType.CODE_BLOCK:
@@ -71,9 +71,9 @@ namespace Wordpress {
                         break;
                     case BlockType.QUOTE:
                         builder.append ("<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\">");
-                        builder.append (render_inner_blocks (child));
+                        builder.append (render_inner_blocks (child, references));
                         if (child.content != "") {
-                            builder.append ("<cite>%s</cite>".printf (parse_inline (child.content.strip ())));
+                            builder.append ("<cite>%s</cite>".printf (parse_inline (child.content.strip (), references)));
                         }
                         builder.append ("</blockquote>\n<!-- /wp:quote -->\n\n");
                         break;
@@ -97,26 +97,26 @@ namespace Wordpress {
             return builder.str;
         }
         
-        private static string render_inner_blocks (Block block) {
+        private static string render_inner_blocks (Block block, Gee.Map<string, string> references) {
              var builder = new StringBuilder ();
              foreach (var child in block.children) {
                  switch (child.block_type) {
                     case BlockType.PARAGRAPH:
-                        builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n".printf (parse_inline (child.content.strip ())));
+                        builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n".printf (parse_inline (child.content.strip (), references)));
                         break;
                     case BlockType.IMAGE:
                         builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, child.alt));
                         break;
                     case BlockType.LIST:
                         builder.append ("<!-- wp:list {\"ordered\":%s} -->\n<%s>\n".printf (child.ordered ? "true" : "false", child.ordered ? "ol" : "ul"));
-                        builder.append (render_list_items (child));
+                        builder.append (render_list_items (child, references));
                         builder.append ("</%s>\n<!-- /wp:list -->\n".printf (child.ordered ? "ol" : "ul"));
                         break;
                     case BlockType.QUOTE:
                         builder.append ("<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\">");
-                        builder.append (render_inner_blocks (child));
+                        builder.append (render_inner_blocks (child, references));
                         if (child.content != "") {
-                            builder.append ("<cite>%s</cite>".printf (parse_inline (child.content.strip ())));
+                            builder.append ("<cite>%s</cite>".printf (parse_inline (child.content.strip (), references)));
                         }
                         builder.append ("</blockquote>\n<!-- /wp:quote -->\n");
                         break;
@@ -127,20 +127,20 @@ namespace Wordpress {
              return builder.str;
         }
 
-        private static string render_list_items (Block list_block) {
+        private static string render_list_items (Block list_block, Gee.Map<string, string> references) {
             var builder = new StringBuilder ();
             foreach (var item in list_block.children) {
                  if (item.block_type == BlockType.LIST_ITEM) {
-                     builder.append ("<li>%s".printf (parse_inline (item.content.strip ())));
+                     builder.append ("<li>%s".printf (parse_inline (item.content.strip (), references)));
                      foreach (var child in item.children) {
                          switch (child.block_type) {
                             case BlockType.LIST:
                                 builder.append ("\n<%s>\n".printf (child.ordered ? "ol" : "ul"));
-                                builder.append (render_list_items (child));
+                                builder.append (render_list_items (child, references));
                                 builder.append ("</%s>\n".printf (child.ordered ? "ol" : "ul"));
                                 break;
                             case BlockType.PARAGRAPH:
-                                builder.append ("\n<p>%s</p>\n".printf (parse_inline (child.content.strip ())));
+                                builder.append ("\n<p>%s</p>\n".printf (parse_inline (child.content.strip (), references)));
                                 break;
                             case BlockType.IMAGE:
                                 builder.append ("\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, child.alt));
@@ -151,11 +151,11 @@ namespace Wordpress {
                                 builder.append ("</code></pre>\n");
                                 break;
                             case BlockType.HEADING:
-                                builder.append ("\n<h%d>%s</h%d>\n".printf (child.level, parse_inline (child.content.strip ()), child.level));
+                                builder.append ("\n<h%d>%s</h%d>\n".printf (child.level, parse_inline (child.content.strip (), references), child.level));
                                 break;
                             case BlockType.QUOTE:
                                 builder.append ("\n<blockquote class=\"wp-block-quote\">");
-                                builder.append (render_inner_blocks (child));
+                                builder.append (render_inner_blocks (child, references));
                                 builder.append ("</blockquote>\n");
                                 break;
                             case BlockType.THEMATIC_BREAK:
@@ -174,7 +174,7 @@ namespace Wordpress {
             return builder.str;
         }
 
-        private static string parse_inline (string text) {
+        private static string parse_inline (string text, Gee.Map<string, string> references) {
              string result = text;
             try {
                 var bold_regex = new Regex ("\\*\\*(.*?)\\*\\*");
@@ -183,11 +183,45 @@ namespace Wordpress {
                 var italic_regex = new Regex ("\\*(.*?)\\*");
                 result = italic_regex.replace (result, -1, 0, "<em>\\1</em>");
 
+                // Standard inline image
                 var img_regex = new Regex ("!\\[(.*?)\\]\\((.*?)\\)");
                 result = img_regex.replace (result, -1, 0, "<img src=\"\\2\" alt=\"\\1\" />");
 
+                // Reference style image: ![alt][id] or ![alt][]
+                var ref_img_regex = new Regex ("!\\[(.*?)\\]\\[(.*?)\\]");
+                result = ref_img_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
+                    string alt = match_info.fetch (1);
+                    string id = match_info.fetch (2);
+                    if (id == "") id = alt;
+                    
+                    string? url = references.get (id.down ());
+                    if (url != null) {
+                        res.append ("<img src=\"%s\" alt=\"%s\" />".printf (url, alt));
+                    } else {
+                        res.append (match_info.fetch (0));
+                    }
+                    return false;
+                });
+
+                // Standard inline link
                 var link_regex = new Regex ("\\[(.*?)\\]\\((.*?)\\)");
                 result = link_regex.replace (result, -1, 0, "<a href=\"\\2\">\\1</a>");
+
+                // Reference style link: [text][id] or [text][]
+                var ref_link_regex = new Regex ("\\[(.*?)\\]\\[(.*?)\\]");
+                result = ref_link_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
+                    string text_content = match_info.fetch (1);
+                    string id = match_info.fetch (2);
+                    if (id == "") id = text_content;
+
+                    string? url = references.get (id.down ());
+                    if (url != null) {
+                        res.append ("<a href=\"%s\">%s</a>".printf (url, text_content));
+                    } else {
+                        res.append (match_info.fetch (0));
+                    }
+                    return false;
+                });
                 
                 var code_regex = new Regex ("`(.*?)`");
                 result = code_regex.replace (result, -1, 0, "<code>\\1</code>");
@@ -202,6 +236,11 @@ namespace Wordpress {
     private class Parser : Object {
         private Block root;
         private Block current;
+        public Gee.HashMap<string, string> references { get; private set; }
+
+        public Parser () {
+            references = new Gee.HashMap<string, string> ();
+        }
 
         public Block parse (string markdown) {
             root = new Block (BlockType.DOCUMENT);
@@ -251,13 +290,21 @@ namespace Wordpress {
                 if (current.block_type == BlockType.PARAGRAPH) {
                     current.open = false;
                     current = current.parent;
-                } else if (current.block_type == BlockType.LIST_ITEM) {
-                    // We don't necessarily close the list item immediately,
-                    // but we might want to mark it as ready to close if the next line is not indented.
-                    // For now, let's keep it open to allow for multi-paragraph list items.
                 }
                 return;
             }
+
+            // Reference definition: [id]: url
+            try {
+                var ref_def_regex = new Regex ("^\\[(.*?)\\]:\\s*(\\S+)(?:\\s+.*)?$");
+                MatchInfo match_info;
+                if (ref_def_regex.match (trimmed, 0, out match_info)) {
+                    string id = match_info.fetch (1).down ();
+                    string url = match_info.fetch (2);
+                    references.set (id, url);
+                    return;
+                }
+            } catch (Error e) {}
 
             // Move up if indentation decreased
             while (current != root && indent < current.indent) {
@@ -316,8 +363,6 @@ namespace Wordpress {
                 while (level < trimmed.length && trimmed[level] == '#') {
                     level++;
                 }
-                // Headings should be at root or in a quote, but usually not nested in lists by simple indentation
-                // unless explicitly intended. For now, let's move out of lists.
                 while (current != root && (current.block_type == BlockType.LIST || current.block_type == BlockType.LIST_ITEM)) {
                     current.open = false;
                     current = current.parent;
@@ -340,7 +385,6 @@ namespace Wordpress {
                     quote_trimmed = quote_trimmed.substring (1).strip ();
                 }
 
-                // Navigate to the correct quote level
                 int current_quote_level = 0;
                 Block? temp = current;
                 while (temp != null && temp != root) {
@@ -350,7 +394,6 @@ namespace Wordpress {
                     temp = temp.parent;
                 }
 
-                // If we need more levels, create them
                 while (current_quote_level < quote_level) {
                     var new_quote = new Block (BlockType.QUOTE, indent);
                     add_block (new_quote);
@@ -358,7 +401,6 @@ namespace Wordpress {
                     current_quote_level++;
                 }
 
-                // If we are deeper than needed, move up
                 while (current_quote_level > quote_level && current != root) {
                     current.open = false;
                     current = current.parent;
@@ -367,14 +409,12 @@ namespace Wordpress {
                     }
                 }
                 
-                // Ensure current is a QUOTE block at the right level
                 while (current != root && current.block_type != BlockType.QUOTE) {
                     current.open = false;
                     current = current.parent;
                 }
 
                 if (quote_trimmed != "") {
-                    // Check for citation: starts with "-- " or "— "
                     if (quote_trimmed.has_prefix ("-- ") || quote_trimmed.has_prefix ("— ")) {
                         current.content = quote_trimmed.substring (quote_trimmed.has_prefix ("-- ") ? 3 : 2).strip ();
                     } else {
@@ -394,12 +434,10 @@ namespace Wordpress {
             if (is_unordered || is_ordered) {
                 close_paragraph ();
                 
-                // If we are in a list item and indent is same, we want to move to parent list
                 if (current.block_type == BlockType.LIST_ITEM && indent <= current.indent) {
                      current = current.parent;
                 }
 
-                // If indent is more than current list, it's a nested list
                 if (current.block_type == BlockType.LIST_ITEM && indent > current.indent) {
                      var list = new Block (BlockType.LIST, indent);
                      list.ordered = is_ordered;
@@ -411,7 +449,6 @@ namespace Wordpress {
                     add_block (list);
                     current = list;
                 } else if (current.block_type == BlockType.LIST && current.ordered != is_ordered && indent == current.indent) {
-                    // Switch list type at same level
                     current.open = false;
                     current = current.parent;
                     var list = new Block (BlockType.LIST, indent);
@@ -462,7 +499,6 @@ namespace Wordpress {
             if (current.block_type == BlockType.PARAGRAPH && current.open) {
                 current.content += " " + trimmed;
             } else if (current.block_type == BlockType.LIST_ITEM) {
-                // New paragraph inside list item
                 var para = new Block (BlockType.PARAGRAPH, indent);
                 para.content = trimmed;
                 current.add_child (para);

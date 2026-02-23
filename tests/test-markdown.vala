@@ -15,6 +15,7 @@ namespace Wordpress {
             test_math_blocks ();
             test_inline_formatting ();
             test_image_blocks ();
+            test_reference_style ();
             test_bug_fix_list_continuation ();
         }
 
@@ -132,6 +133,19 @@ namespace Wordpress {
                 print ("DEBUG ACTUAL: [%s]\n", actual);
             }
             assert_true (actual.contains ("<img src=\"https://example.com/inline.png\" alt=\"Inline Image\" />"), "Inline image rendered as img tag");
+        }
+
+        private static void test_reference_style () {
+            string md = "Check [this link][ref] and ![this image][img].\n\n[ref]: https://example.com\n[img]: https://example.com/img.png";
+            string actual = MarkdownConverter.to_blocks (md);
+            
+            assert_true (actual.contains ("<a href=\"https://example.com\">this link</a>"), "Reference Link");
+            assert_true (actual.contains ("<img src=\"https://example.com/img.png\" alt=\"this image\" />"), "Reference Image");
+            assert_true (!actual.contains ("[ref]:"), "Reference definitions are consumed");
+
+            md = "[collapsed][]\n\n[collapsed]: https://collapsed.com";
+            actual = MarkdownConverter.to_blocks (md);
+            assert_true (actual.contains ("<a href=\"https://collapsed.com\">collapsed</a>"), "Collapsed Reference Link");
         }
 
         private static void test_bug_fix_list_continuation () {
