@@ -11,4 +11,17 @@ if get_option('enable_examples')
     install: false
   )
 
+  executable('hello-wordpress-rest',
+    [
+      'hello-wordpress-rest.vala',
+      join_paths(meson.source_root(), 'src', 'Wordpress3.vala'),
+    ],
+    dependencies: libwordpress_deps,
+    vala_args: [
+        '--pkg=posix',
+        '--vapidir=' + meson.source_root() + '/vapi'
+        ],
+    install: false
+  )
+
 endif

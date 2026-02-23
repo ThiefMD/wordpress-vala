@@ -151,6 +151,18 @@ namespace Wordpress {
             return success;
         }
 
+        public bool create_post_from_markdown (
+            out string id,
+            string title,
+            string markdown,
+            bool publish = true,
+            string cover_image_url = "",
+            string[]? tags = null)
+        {
+            string html_blocks = MarkdownConverter.to_blocks (markdown);
+            return create_post_simple (out id, title, html_blocks, publish, cover_image_url, tags);
+        }
+
         public bool upload_image_simple (
             out string file_url,
             string local_file_path

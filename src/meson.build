@@ -5,7 +5,9 @@ else
 endif
 
 libwordpress_sources = [
-  'Wordpress.vala'
+  'Wordpress.vala',
+  'WordpressRest.vala',
+  'Markdown.vala'
 ]
 
 
