@@ -6,12 +6,12 @@ namespace Wordpress {
 
     private class Block : Object {
         public BlockType block_type { get; set; }
-        public int level { get; set; } // For headings
-        public bool ordered { get; set; } // For lists
+        public int level { get; set; }
+        public bool ordered { get; set; }
         public string content { get; set; }
-        public string alt { get; set; } // For images
+        public string alt { get; set; }
         public Gee.ArrayList<Block> children { get; set; }
-        public Block parent { get; set; }
+        public Block? parent { get; set; }
         public bool open { get; set; }
         public int indent { get; set; }
 
@@ -27,6 +27,13 @@ namespace Wordpress {
         public void add_child (Block child) {
             child.parent = this;
             this.children.add (child);
+        }
+
+        public void close () {
+            this.open = false;
+            foreach (var child in children) {
+                if (child.open) child.close ();
+            }
         }
     }
 
@@ -67,8 +74,7 @@ namespace Wordpress {
                 for (int i = 0; i < footnote_ctx.used_ids.size; i++) {
                     string id = footnote_ctx.used_ids.get (i);
                     string raw_content = parser.footnotes.get (id);
-                    // Convert internal newlines to <br/> for multi-line footnotes
-                    string footnote_content = parse_inline (raw_content.replace ("\n", "<br/>"), parser.references, footnote_ctx);
+                    string footnote_content = parse_inline (raw_content, parser.references, footnote_ctx).replace ("\n", "<br/>");
                     builder.append ("<li id=\"footnote-%d\">%s <a href=\"#footnote-link-%d\">↩︎</a></li>\n".printf (i + 1, footnote_content, i + 1));
                 }
                 builder.append ("</ol>\n<!-- /wp:footnotes -->\n\n");
@@ -76,6 +82,10 @@ namespace Wordpress {
             }
 
             return content;
+        }
+
+        private static string escape (string text) {
+            return Markup.escape_text (text);
         }
 
         private static string render (Block block, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
@@ -96,7 +106,7 @@ namespace Wordpress {
                         break;
                     case BlockType.CODE_BLOCK:
                         builder.append ("<!-- wp:code -->\n<pre class=\"wp-block-code\"><code>");
-                        builder.append (Markup.escape_text (child.content)); 
+                        builder.append (escape (child.content)); 
                         builder.append ("</code></pre>\n<!-- /wp:code -->\n\n");
                         break;
                     case BlockType.QUOTE:
@@ -114,11 +124,11 @@ namespace Wordpress {
                         builder.append ("<!-- wp:html -->\n%s\n<!-- /wp:html -->\n\n".printf (child.content));
                         break;
                     case BlockType.MATH:
-                        string escaped_math = Markup.escape_text (child.content.strip ());
+                        string escaped_math = escape (child.content.strip ());
                         builder.append ("<!-- wp:latex {\"latex\":\"%s\"} -->\n<p class=\"wp-block-latex\">$%s$</p>\n<!-- /wp:latex -->\n\n".printf (escaped_math, escaped_math));
                         break;
                     case BlockType.IMAGE:
-                        builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n\n".printf (child.content, child.alt));
+                        builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n\n".printf (child.content, escape (child.alt)));
                         break;
                     case BlockType.TABLE:
                         builder.append ("<!-- wp:table -->\n<figure class=\"wp-block-table\"><table>");
@@ -128,7 +138,7 @@ namespace Wordpress {
                     case BlockType.GALLERY:
                         builder.append ("<!-- wp:gallery {\"linkTo\":\"none\"} -->\n<figure class=\"wp-block-gallery has-nested-images columns-default is-cropped\">");
                         foreach (var img in child.children) {
-                            builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (img.content, img.alt));
+                            builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (img.content, escape (img.alt)));
                         }
                         builder.append ("</figure>\n<!-- /wp:gallery -->\n\n");
                         break;
@@ -143,7 +153,6 @@ namespace Wordpress {
             var lines = table_content.strip ().split ("\n");
             if (lines.length < 2) return;
 
-            // Header
             builder.append ("<thead><tr>");
             var header_cells = lines[0].split ("|");
             foreach (var cell in header_cells) {
@@ -153,7 +162,6 @@ namespace Wordpress {
             }
             builder.append ("</tr></thead>");
 
-            // Body
             if (lines.length > 2) {
                 builder.append ("<tbody>");
                 for (int i = 2; i < lines.length; i++) {
@@ -178,12 +186,12 @@ namespace Wordpress {
                         builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n".printf (parse_inline (child.content.strip (), references, footnote_ctx)));
                         break;
                     case BlockType.IMAGE:
-                        builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, child.alt));
+                        builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, escape (child.alt)));
                         break;
                     case BlockType.GALLERY:
                         builder.append ("<!-- wp:gallery {\"linkTo\":\"none\"} -->\n<figure class=\"wp-block-gallery has-nested-images columns-default is-cropped\">");
                         foreach (var img in child.children) {
-                            builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (img.content, img.alt));
+                            builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (img.content, escape (img.alt)));
                         }
                         builder.append ("</figure>\n<!-- /wp:gallery -->\n");
                         break;
@@ -233,18 +241,18 @@ namespace Wordpress {
                                 builder.append ("\n<p>%s</p>\n".printf (parse_inline (child.content.strip (), references, footnote_ctx)));
                                 break;
                             case BlockType.IMAGE:
-                                builder.append ("\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, child.alt));
+                                builder.append ("\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, escape (child.alt)));
                                 break;
                             case BlockType.GALLERY:
                                 builder.append ("\n<!-- wp:gallery {\"linkTo\":\"none\"} -->\n<figure class=\"wp-block-gallery has-nested-images columns-default is-cropped\">");
                                 foreach (var img in child.children) {
-                                    builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (img.content, img.alt));
+                                    builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (img.content, escape (img.alt)));
                                 }
                                 builder.append ("</figure>\n<!-- /wp:gallery -->\n");
                                 break;
                             case BlockType.CODE_BLOCK:
                                 builder.append ("\n<pre class=\"wp-block-code\"><code>");
-                                builder.append (Markup.escape_text (child.content)); 
+                                builder.append (escape (child.content)); 
                                 builder.append ("</code></pre>\n");
                                 break;
                             case BlockType.HEADING:
@@ -272,41 +280,44 @@ namespace Wordpress {
         }
 
         private static string parse_inline (string text, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
-             string result = text;
              var code_spans = new Gee.ArrayList<string> ();
+             var escaped_chars = new Gee.ArrayList<string> ();
+             string result = text;
             try {
-                // 1. Protect code spans
+                // 1. Extract code spans (raw)
                 var code_span_regex = new Regex ("`(.*?)`|``(.*?)``");
                 result = code_span_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
                     string content = match_info.fetch (1);
                     if (content == null) content = match_info.fetch (2);
                     code_spans.add (content);
-                    res.append ("\x03%d\x04".printf (code_spans.size - 1));
+                    res.append ("ZZCODE%dZZ".printf (code_spans.size - 1));
                     return false;
                 });
 
-                // 2. Protect escapes
-                var escape_regex = new Regex ("\\\\([\\\\\\*\\_\\~\\!\\[\\]\\(\\)\\#\\|\\`\\.])");
-                result = escape_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
-                    string c = match_info.fetch (1);
-                    res.append ("\x01%d\x02".printf ((int)c[0]));
+                // 2. Extract escaped chars (raw)
+                var escape_token_regex = new Regex ("\\\\([\\\\\\*\\_\\~\\!\\[\\]\\(\\)\\#\\|\\`\\.])");
+                result = escape_token_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
+                    escaped_chars.add (match_info.fetch (1));
+                    res.append ("ZZESC%dZZ".printf (escaped_chars.size - 1));
                     return false;
                 });
 
-                var bold_regex = new Regex ("\\*\\*(.*?)\\*\\*");
-                result = bold_regex.replace (result, -1, 0, "<strong>\\1</strong>");
+                // 3. Escape everything else (now that tokens are protected)
+                result = escape (result);
+
+                // 4. Formatting
+                var bold_regex = new Regex ("\\*\\*(.*?)\\*\\*|\\__(.*?)__");
+                result = bold_regex.replace (result, -1, 0, "<strong>\\1\\2</strong>");
                 
-                var italic_regex = new Regex ("\\*(.*?)\\*");
-                result = italic_regex.replace (result, -1, 0, "<em>\\1</em>");
+                var italic_regex = new Regex ("\\*(.*?)\\*|\\_(.*?)_");
+                result = italic_regex.replace (result, -1, 0, "<em>\\1\\2</em>");
 
                 var strike_regex = new Regex ("~~(.*?)~~");
                 result = strike_regex.replace (result, -1, 0, "<s>\\1</s>");
 
-                // Standard inline image
                 var img_regex = new Regex ("!\\[(.*?)\\]\\((.*?)\\)");
                 result = img_regex.replace (result, -1, 0, "<img src=\"\\2\" alt=\"\\1\" />");
 
-                // Reference style image: ![alt][id] or ![alt][]
                 var ref_img_regex = new Regex ("!\\[(.*?)\\]\\[(.*?)\\]");
                 result = ref_img_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
                     string alt = match_info.fetch (1);
@@ -322,11 +333,9 @@ namespace Wordpress {
                     return false;
                 });
 
-                // Standard inline link
                 var link_regex = new Regex ("\\[(.*?)\\]\\((.*?)\\)");
                 result = link_regex.replace (result, -1, 0, "<a href=\"\\2\">\\1</a>");
 
-                // Reference style link: [text][id] or [text][]
                 var ref_link_regex = new Regex ("\\[(.*?)\\]\\[(.*?)\\]");
                 result = ref_link_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
                     string text_content = match_info.fetch (1);
@@ -342,7 +351,6 @@ namespace Wordpress {
                     return false;
                 });
                 
-                // Footnote markers: [^id]
                 var footnote_regex = new Regex ("\\[\\^(.*?)\\]");
                 result = footnote_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
                     string id = match_info.fetch (1);
@@ -355,19 +363,18 @@ namespace Wordpress {
                     return false;
                 });
 
-                // 3. Restore escapes
-                var restore_escape_regex = new Regex ("\x01(\\d+)\x02");
+                // 5. Restore tokens (and escape them as they are restored)
+                var restore_escape_regex = new Regex ("ZZESC(\\d+)ZZ");
                 result = restore_escape_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
-                    int code = int.parse (match_info.fetch (1));
-                    res.append (((char)code).to_string ());
+                    int index = int.parse (match_info.fetch (1));
+                    res.append (escape (escaped_chars.get (index)));
                     return false;
                 });
 
-                // 4. Restore code spans
-                var restore_code_regex = new Regex ("\x03(\\d+)\x04");
+                var restore_code_regex = new Regex ("ZZCODE(\\d+)ZZ");
                 result = restore_code_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
                     int index = int.parse (match_info.fetch (1));
-                    res.append ("<code>%s</code>".printf (code_spans.get (index)));
+                    res.append ("<code>%s</code>".printf (escape (code_spans.get (index))));
                     return false;
                 });
 
@@ -409,16 +416,51 @@ namespace Wordpress {
             return i;
         }
 
+        private void close_paragraph () {
+            if (current.block_type == BlockType.PARAGRAPH) {
+                current.close ();
+                current = current.parent;
+            }
+        }
+
+        private void add_block (Block block) {
+            if (current.block_type == BlockType.DOCUMENT || current.block_type == BlockType.QUOTE || current.block_type == BlockType.LIST_ITEM) {
+                if (block.block_type == BlockType.IMAGE && current.children.size > 0) {
+                    var last = current.children.get (current.children.size - 1);
+                    if (last.block_type == BlockType.GALLERY && last.open) {
+                        last.add_child (block);
+                        return;
+                    } else if (last.block_type == BlockType.IMAGE) {
+                        current.children.remove_at (current.children.size - 1);
+                        var gallery = new Block (BlockType.GALLERY, last.indent);
+                        gallery.add_child (last);
+                        gallery.add_child (block);
+                        current.add_child (gallery);
+                        return;
+                    }
+                }
+                current.add_child (block);
+            } else if (current.parent != null) {
+                current.close ();
+                current = current.parent;
+                add_block (block);
+            }
+        }
+
         private void process_line (string line) {
             int indent = get_indent (line);
             string trimmed = line.strip ();
 
             if (current.block_type == BlockType.CODE_BLOCK && current.open) {
                 if (trimmed.has_prefix ("```")) {
-                    current.open = false;
+                    current.close ();
                     current = current.parent;
                 } else {
-                    current.content += line + "\n";
+                    if (current.indent >= 4 && line.has_prefix ("    ")) {
+                        current.content += line.substring (4) + "\n";
+                    } else {
+                        current.content += line + "\n";
+                    }
                 }
                 return;
             }
@@ -426,7 +468,7 @@ namespace Wordpress {
             if (current.block_type == BlockType.MATH && current.open) {
                 if (trimmed.has_suffix ("$$")) {
                     current.content += line.replace ("$$", "").strip ();
-                    current.open = false;
+                    current.close ();
                     current = current.parent;
                 } else {
                     current.content += line + "\n";
@@ -439,12 +481,56 @@ namespace Wordpress {
                     current.content += trimmed + "\n";
                     return;
                 } else {
-                    current.open = false;
+                    current.close ();
                     current = current.parent;
                 }
             }
 
-            // Thematic break (Horizontal Rule)
+            if (trimmed == "") {
+                if (current.block_type == BlockType.PARAGRAPH) {
+                    current.close ();
+                    current = current.parent;
+                } else if (current.block_type == BlockType.CODE_BLOCK && current.open) {
+                    current.content += "\n";
+                } else if (current.block_type == BlockType.LIST_ITEM || current.block_type == BlockType.LIST) {
+                    var temp = current;
+                    while (temp != root && temp.block_type == BlockType.PARAGRAPH) {
+                        temp.close ();
+                        temp = temp.parent;
+                    }
+                    current = temp;
+                }
+                return;
+            }
+
+            // Move up if indentation decreased
+            while (current != root && indent < current.indent && current.block_type != BlockType.CODE_BLOCK) {
+                current.close ();
+                current = current.parent;
+            }
+
+            // Footnote continuation
+            if (last_footnote_id != null && indent > 0) {
+                string existing = footnotes.get (last_footnote_id);
+                footnotes.set (last_footnote_id, existing + "\n" + trimmed);
+                return;
+            }
+
+            // Indented Code Block
+            if (indent >= 4 && trimmed != "" && !(current.block_type == BlockType.PARAGRAPH && current.open) && !(current.block_type == BlockType.LIST_ITEM) && !(current.block_type == BlockType.LIST)) {
+                if (current.block_type == BlockType.CODE_BLOCK && current.open) {
+                    current.content += line.substring (4) + "\n";
+                } else {
+                    close_paragraph ();
+                    var cb = new Block (BlockType.CODE_BLOCK, indent);
+                    cb.content = line.substring (4) + "\n";
+                    add_block (cb);
+                    current = cb;
+                }
+                return;
+            }
+
+            // Thematic break
             bool is_thematic = false;
             if (Regex.match_simple ("^(\\s*\\*\\s*){3,}$|^(\\s*_\\s*){3,}$", trimmed)) {
                 is_thematic = true;
@@ -464,7 +550,7 @@ namespace Wordpress {
             if (trimmed != "" && Regex.match_simple ("^=+ *$", trimmed) && current.block_type == BlockType.PARAGRAPH && current.open) {
                 current.block_type = BlockType.HEADING;
                 current.level = 1;
-                current.open = false;
+                current.close ();
                 current = current.parent;
                 return;
             }
@@ -473,7 +559,7 @@ namespace Wordpress {
             if (trimmed != "" && Regex.match_simple ("^-+ *$", trimmed) && current.block_type == BlockType.PARAGRAPH && current.open) {
                 current.block_type = BlockType.HEADING;
                 current.level = 2;
-                current.open = false;
+                current.close ();
                 current = current.parent;
                 return;
             }
@@ -488,19 +574,12 @@ namespace Wordpress {
                 }
             }
 
-            if (trimmed == "") {
-                if (current.block_type == BlockType.PARAGRAPH) {
-                    current.open = false;
-                    current = current.parent;
-                }
-                return;
-            }
-
-            // Footnote definition: [^id]: content
+            // Footnote definition
             try {
                 var footnote_def_regex = new Regex ("^\\[\\^(.*?)\\]:\\s*(.*)$");
                 MatchInfo match_info;
                 if (footnote_def_regex.match (trimmed, 0, out match_info)) {
+                    close_paragraph ();
                     string id = match_info.fetch (1);
                     string content = match_info.fetch (2);
                     footnotes.set (id, content);
@@ -509,18 +588,12 @@ namespace Wordpress {
                 }
             } catch (Error e) {}
 
-            // Footnote continuation
-            if (last_footnote_id != null && indent > 0) {
-                string existing = footnotes.get (last_footnote_id);
-                footnotes.set (last_footnote_id, existing + "\n" + trimmed);
-                return;
-            }
-
-            // Reference definition: [id]: url
+            // Reference definition
             try {
                 var ref_def_regex = new Regex ("^\\[(.*?)\\]:\\s*(\\S+)(?:\\s+.*)?$");
                 MatchInfo match_info;
                 if (ref_def_regex.match (trimmed, 0, out match_info)) {
+                    close_paragraph ();
                     string id = match_info.fetch (1).down ();
                     string url = match_info.fetch (2);
                     references.set (id, url);
@@ -529,29 +602,9 @@ namespace Wordpress {
                 }
             } catch (Error e) {}
 
-            // If not indented and not a definition, clear last_footnote_id
-            if (indent == 0) {
-                last_footnote_id = null;
-            }
+            if (indent == 0) last_footnote_id = null;
 
-            // Move up if indentation decreased
-            while (current != root && indent < current.indent) {
-                current.open = false;
-                current = current.parent;
-            }
-
-            // Special case for list items: if indentation is 0 and it's not a list marker, close the list
-            if (current != root && indent == 0 && (current.block_type == BlockType.LIST || current.block_type == BlockType.LIST_ITEM)) {
-                bool is_new_list_marker = trimmed.has_prefix ("* ") || trimmed.has_prefix ("- ") || trimmed.has_prefix ("+ ") || Regex.match_simple ("^(\\d+)\\. (.*)", trimmed);
-                if (!is_new_list_marker) {
-                    while (current != root && (current.block_type == BlockType.LIST || current.block_type == BlockType.LIST_ITEM)) {
-                        current.open = false;
-                        current = current.parent;
-                    }
-                }
-            }
-
-            // Code block
+            // Fenced code block
             if (trimmed.has_prefix ("```")) {
                 close_paragraph ();
                 var code_block = new Block (BlockType.CODE_BLOCK, indent);
@@ -575,7 +628,7 @@ namespace Wordpress {
                 var math_block = new Block (BlockType.MATH, indent);
                 if (trimmed.length > 2 && trimmed.has_suffix ("$$")) {
                     math_block.content = trimmed.substring (2, trimmed.length - 4).strip ();
-                    math_block.open = false;
+                    math_block.close ();
                     add_block (math_block);
                 } else {
                     add_block (math_block);
@@ -588,13 +641,7 @@ namespace Wordpress {
             if (trimmed.has_prefix ("#")) {
                 close_paragraph ();
                 int level = 0;
-                while (level < trimmed.length && trimmed[level] == '#') {
-                    level++;
-                }
-                while (current != root && (current.block_type == BlockType.LIST || current.block_type == BlockType.LIST_ITEM)) {
-                    current.open = false;
-                    current = current.parent;
-                }
+                while (level < trimmed.length && trimmed[level] == '#') level++;
                 var heading = new Block (BlockType.HEADING, indent);
                 heading.level = level;
                 heading.content = trimmed.substring (level).strip ();
@@ -605,49 +652,44 @@ namespace Wordpress {
             // Blockquotes
             if (trimmed.has_prefix (">")) {
                 close_paragraph ();
-                
                 int quote_level = 0;
-                string quote_trimmed = trimmed;
-                while (quote_trimmed.has_prefix (">")) {
+                string q_trimmed = trimmed;
+                while (q_trimmed.has_prefix (">")) {
                     quote_level++;
-                    quote_trimmed = quote_trimmed.substring (1).strip ();
+                    q_trimmed = q_trimmed.substring (1).strip ();
                 }
 
-                int current_quote_level = 0;
+                int curr_q_level = 0;
                 Block? temp = current;
                 while (temp != null && temp != root) {
-                    if (temp.block_type == BlockType.QUOTE) {
-                        current_quote_level++;
-                    }
+                    if (temp.block_type == BlockType.QUOTE) curr_q_level++;
                     temp = temp.parent;
                 }
 
-                while (current_quote_level < quote_level) {
+                while (curr_q_level < quote_level) {
                     var new_quote = new Block (BlockType.QUOTE, indent);
                     add_block (new_quote);
                     current = new_quote;
-                    current_quote_level++;
+                    curr_q_level++;
                 }
 
-                while (current_quote_level > quote_level && current != root) {
-                    current.open = false;
+                while (curr_q_level > quote_level && current != root) {
+                    current.close ();
                     current = current.parent;
-                    if (current.block_type == BlockType.QUOTE) {
-                        current_quote_level--;
-                    }
+                    if (current.block_type == BlockType.QUOTE) curr_q_level--;
                 }
                 
                 while (current != root && current.block_type != BlockType.QUOTE) {
-                    current.open = false;
+                    current.close ();
                     current = current.parent;
                 }
 
-                if (quote_trimmed != "") {
-                    if (quote_trimmed.has_prefix ("-- ") || quote_trimmed.has_prefix ("— ")) {
-                        current.content = quote_trimmed.substring (quote_trimmed.has_prefix ("-- ") ? 3 : 2).strip ();
+                if (q_trimmed != "") {
+                    if (q_trimmed.has_prefix ("-- ") || q_trimmed.has_prefix ("— ")) {
+                        current.content = q_trimmed.substring (q_trimmed.has_prefix ("-- ") ? 3 : 2).strip ();
                     } else {
                         var para = new Block (BlockType.PARAGRAPH, indent + 1);
-                        para.content = quote_trimmed;
+                        para.content = q_trimmed;
                         current.add_child (para);
                         current = para;
                     }
@@ -661,7 +703,6 @@ namespace Wordpress {
 
             if (is_unordered || is_ordered) {
                 close_paragraph ();
-                
                 if (current.block_type == BlockType.LIST_ITEM && indent <= current.indent) {
                      current = current.parent;
                 }
@@ -677,7 +718,7 @@ namespace Wordpress {
                     add_block (list);
                     current = list;
                 } else if (current.block_type == BlockType.LIST && current.ordered != is_ordered && indent == current.indent) {
-                    current.open = false;
+                    current.close ();
                     current = current.parent;
                     var list = new Block (BlockType.LIST, indent);
                     list.ordered = is_ordered;
@@ -710,7 +751,7 @@ namespace Wordpress {
                     close_paragraph ();
                     var image_block = new Block (BlockType.IMAGE, indent);
                     image_block.alt = match_info.fetch (1);
-                    image_block.content = match_info.fetch (2); // URL
+                    image_block.content = match_info.fetch (2);
                     add_block (image_block);
                     return;
                 }
@@ -720,6 +761,23 @@ namespace Wordpress {
             if (current.block_type == BlockType.PARAGRAPH && current.open) {
                 current.content += "\n" + trimmed;
             } else if (current.block_type == BlockType.LIST_ITEM) {
+                if (indent <= current.indent) {
+                    Block? temp = current;
+                    while (temp != root && (temp.block_type == BlockType.LIST_ITEM || temp.block_type == BlockType.LIST)) {
+                        temp.close ();
+                        temp = temp.parent;
+                    }
+                    current = temp;
+                }
+
+                if (current.block_type != BlockType.LIST_ITEM) {
+                    var para_after_list = new Block (BlockType.PARAGRAPH, indent);
+                    para_after_list.content = trimmed;
+                    add_block (para_after_list);
+                    current = para_after_list;
+                    return;
+                }
+
                 var para = new Block (BlockType.PARAGRAPH, indent);
                 para.content = trimmed;
                 current.add_child (para);
@@ -729,38 +787,6 @@ namespace Wordpress {
                 para.content = trimmed;
                 add_block (para);
                 current = para;
-            }
-        }
-
-        private void close_paragraph () {
-            if (current.block_type == BlockType.PARAGRAPH) {
-                current.open = false;
-                current = current.parent;
-            }
-        }
-
-        private void add_block (Block block) {
-            if (current.block_type == BlockType.DOCUMENT || current.block_type == BlockType.QUOTE || current.block_type == BlockType.LIST_ITEM) {
-                // Check for consecutive images to form a gallery
-                if (block.block_type == BlockType.IMAGE && current.children.size > 0) {
-                    var last = current.children.get (current.children.size - 1);
-                    if (last.block_type == BlockType.GALLERY) {
-                        last.add_child (block);
-                        return;
-                    } else if (last.block_type == BlockType.IMAGE) {
-                        // Upgrade to gallery
-                        current.children.remove_at (current.children.size - 1);
-                        var gallery = new Block (BlockType.GALLERY, last.indent);
-                        gallery.add_child (last);
-                        gallery.add_child (block);
-                        current.add_child (gallery);
-                        return;
-                    }
-                }
-                current.add_child (block);
-            } else if (current.parent != null) {
-                current = current.parent;
-                add_block (block);
             }
         }
     }
