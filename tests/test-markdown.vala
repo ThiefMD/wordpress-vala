@@ -16,6 +16,8 @@ namespace Wordpress {
             test_inline_formatting ();
             test_image_blocks ();
             test_reference_style ();
+            test_footnotes ();
+            test_multiline_footnotes ();
             test_bug_fix_list_continuation ();
         }
 
@@ -146,6 +148,23 @@ namespace Wordpress {
             md = "[collapsed][]\n\n[collapsed]: https://collapsed.com";
             actual = MarkdownConverter.to_blocks (md);
             assert_true (actual.contains ("<a href=\"https://collapsed.com\">collapsed</a>"), "Collapsed Reference Link");
+        }
+
+        private static void test_footnotes () {
+            string md = "Text with a footnote.[^1]\n\n[^1]: This is the footnote content.";
+            string actual = MarkdownConverter.to_blocks (md);
+            
+            assert_true (actual.contains ("<sup id=\"footnote-link-1\" class=\"wp-block-footnote\"><a href=\"#footnote-1\">1</a></sup>"), "Footnote marker in text");
+            assert_true (actual.contains ("<!-- wp:footnotes -->"), "Footnotes block start");
+            assert_true (actual.contains ("<li id=\"footnote-1\">This is the footnote content. <a href=\"#footnote-link-1\">↩︎</a></li>"), "Footnote list item");
+            assert_true (actual.contains ("<!-- /wp:footnotes -->"), "Footnotes block end");
+            assert_true (!actual.contains ("[^1]:"), "Footnote definition consumed");
+        }
+
+        private static void test_multiline_footnotes () {
+            string md = "Text.[^1]\n\n[^1]: Line 1\n    Line 2";
+            string actual = MarkdownConverter.to_blocks (md);
+            assert_true (actual.contains ("Line 1<br/>Line 2"), "Multiline footnote content contains <br/>");
         }
 
         private static void test_bug_fix_list_continuation () {

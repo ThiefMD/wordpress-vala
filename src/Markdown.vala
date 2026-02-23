@@ -40,28 +40,68 @@ namespace Wordpress {
         }
     }
 
+    private class FootnoteContext : Object {
+        public Gee.Map<string, string> definitions;
+        public Gee.List<string> used_ids;
+        
+        public FootnoteContext (Gee.Map<string, string> definitions) {
+            this.definitions = definitions;
+            this.used_ids = new Gee.ArrayList<string> ();
+        }
+
+        public int get_or_add (string id) {
+            int index = used_ids.index_of (id);
+            if (index == -1) {
+                if (definitions.has_key (id)) {
+                    used_ids.add (id);
+                    return used_ids.size;
+                }
+                return -1;
+            }
+            return index + 1;
+        }
+    }
+
     public class MarkdownConverter : Object {
 
         public static string to_blocks (string markdown) {
             var parser = new Parser ();
             var root = parser.parse (markdown);
-            return render (root, parser.references);
+            var footnote_ctx = new FootnoteContext (parser.footnotes);
+            
+            string content = render (root, parser.references, footnote_ctx);
+            
+            if (footnote_ctx.used_ids.size > 0) {
+                var builder = new StringBuilder (content);
+                builder.append ("<!-- wp:footnotes -->\n<ol class=\"wp-block-footnotes\">\n");
+                for (int i = 0; i < footnote_ctx.used_ids.size; i++) {
+                    string id = footnote_ctx.used_ids.get (i);
+                    string raw_content = parser.footnotes.get (id);
+                    // Convert internal newlines to <br/> for multi-line footnotes
+                    string footnote_content = parse_inline (raw_content.replace ("\n", "<br/>"), parser.references, footnote_ctx);
+                    builder.append ("<li id=\"footnote-%d\">%s <a href=\"#footnote-link-%d\">↩︎</a></li>\n".printf (i + 1, footnote_content, i + 1));
+                }
+                builder.append ("</ol>\n<!-- /wp:footnotes -->\n\n");
+                return builder.str;
+            }
+
+            return content;
         }
 
-        private static string render (Block block, Gee.Map<string, string> references) {
+        private static string render (Block block, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
             var builder = new StringBuilder ();
             
             foreach (var child in block.children) {
                 switch (child.block_type) {
                     case BlockType.HEADING:
-                        builder.append ("<!-- wp:heading {\"level\":%d} -->\n<h%d>%s</h%d>\n<!-- /wp:heading -->\n\n".printf (child.level, child.level, parse_inline (child.content.strip (), references), child.level));
+                        builder.append ("<!-- wp:heading {\"level\":%d} -->\n<h%d>%s</h%d>\n<!-- /wp:heading -->\n\n".printf (child.level, child.level, parse_inline (child.content.strip (), references, footnote_ctx), child.level));
                         break;
                     case BlockType.PARAGRAPH:
-                        builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n\n".printf (parse_inline (child.content.strip (), references)));
+                        builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n\n".printf (parse_inline (child.content.strip (), references, footnote_ctx)));
                         break;
                     case BlockType.LIST:
                         builder.append ("<!-- wp:list {\"ordered\":%s} -->\n<%s>\n".printf (child.ordered ? "true" : "false", child.ordered ? "ol" : "ul"));
-                        builder.append (render_list_items (child, references));
+                        builder.append (render_list_items (child, references, footnote_ctx));
                         builder.append ("</%s>\n<!-- /wp:list -->\n\n".printf (child.ordered ? "ol" : "ul"));
                         break;
                     case BlockType.CODE_BLOCK:
@@ -71,9 +111,9 @@ namespace Wordpress {
                         break;
                     case BlockType.QUOTE:
                         builder.append ("<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\">");
-                        builder.append (render_inner_blocks (child, references));
+                        builder.append (render_inner_blocks (child, references, footnote_ctx));
                         if (child.content != "") {
-                            builder.append ("<cite>%s</cite>".printf (parse_inline (child.content.strip (), references)));
+                            builder.append ("<cite>%s</cite>".printf (parse_inline (child.content.strip (), references, footnote_ctx)));
                         }
                         builder.append ("</blockquote>\n<!-- /wp:quote -->\n\n");
                         break;
@@ -97,26 +137,26 @@ namespace Wordpress {
             return builder.str;
         }
         
-        private static string render_inner_blocks (Block block, Gee.Map<string, string> references) {
+        private static string render_inner_blocks (Block block, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
              var builder = new StringBuilder ();
              foreach (var child in block.children) {
                  switch (child.block_type) {
                     case BlockType.PARAGRAPH:
-                        builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n".printf (parse_inline (child.content.strip (), references)));
+                        builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n".printf (parse_inline (child.content.strip (), references, footnote_ctx)));
                         break;
                     case BlockType.IMAGE:
                         builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, child.alt));
                         break;
                     case BlockType.LIST:
                         builder.append ("<!-- wp:list {\"ordered\":%s} -->\n<%s>\n".printf (child.ordered ? "true" : "false", child.ordered ? "ol" : "ul"));
-                        builder.append (render_list_items (child, references));
+                        builder.append (render_list_items (child, references, footnote_ctx));
                         builder.append ("</%s>\n<!-- /wp:list -->\n".printf (child.ordered ? "ol" : "ul"));
                         break;
                     case BlockType.QUOTE:
                         builder.append ("<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\">");
-                        builder.append (render_inner_blocks (child, references));
+                        builder.append (render_inner_blocks (child, references, footnote_ctx));
                         if (child.content != "") {
-                            builder.append ("<cite>%s</cite>".printf (parse_inline (child.content.strip (), references)));
+                            builder.append ("<cite>%s</cite>".printf (parse_inline (child.content.strip (), references, footnote_ctx)));
                         }
                         builder.append ("</blockquote>\n<!-- /wp:quote -->\n");
                         break;
@@ -127,20 +167,20 @@ namespace Wordpress {
              return builder.str;
         }
 
-        private static string render_list_items (Block list_block, Gee.Map<string, string> references) {
+        private static string render_list_items (Block list_block, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
             var builder = new StringBuilder ();
             foreach (var item in list_block.children) {
                  if (item.block_type == BlockType.LIST_ITEM) {
-                     builder.append ("<li>%s".printf (parse_inline (item.content.strip (), references)));
+                     builder.append ("<li>%s".printf (parse_inline (item.content.strip (), references, footnote_ctx)));
                      foreach (var child in item.children) {
                          switch (child.block_type) {
                             case BlockType.LIST:
                                 builder.append ("\n<%s>\n".printf (child.ordered ? "ol" : "ul"));
-                                builder.append (render_list_items (child, references));
+                                builder.append (render_list_items (child, references, footnote_ctx));
                                 builder.append ("</%s>\n".printf (child.ordered ? "ol" : "ul"));
                                 break;
                             case BlockType.PARAGRAPH:
-                                builder.append ("\n<p>%s</p>\n".printf (parse_inline (child.content.strip (), references)));
+                                builder.append ("\n<p>%s</p>\n".printf (parse_inline (child.content.strip (), references, footnote_ctx)));
                                 break;
                             case BlockType.IMAGE:
                                 builder.append ("\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, child.alt));
@@ -151,11 +191,11 @@ namespace Wordpress {
                                 builder.append ("</code></pre>\n");
                                 break;
                             case BlockType.HEADING:
-                                builder.append ("\n<h%d>%s</h%d>\n".printf (child.level, parse_inline (child.content.strip (), references), child.level));
+                                builder.append ("\n<h%d>%s</h%d>\n".printf (child.level, parse_inline (child.content.strip (), references, footnote_ctx), child.level));
                                 break;
                             case BlockType.QUOTE:
                                 builder.append ("\n<blockquote class=\"wp-block-quote\">");
-                                builder.append (render_inner_blocks (child, references));
+                                builder.append (render_inner_blocks (child, references, footnote_ctx));
                                 builder.append ("</blockquote>\n");
                                 break;
                             case BlockType.THEMATIC_BREAK:
@@ -174,7 +214,7 @@ namespace Wordpress {
             return builder.str;
         }
 
-        private static string parse_inline (string text, Gee.Map<string, string> references) {
+        private static string parse_inline (string text, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
              string result = text;
             try {
                 var bold_regex = new Regex ("\\*\\*(.*?)\\*\\*");
@@ -223,6 +263,19 @@ namespace Wordpress {
                     return false;
                 });
                 
+                // Footnote markers: [^id]
+                var footnote_regex = new Regex ("\\[\\^(.*?)\\]");
+                result = footnote_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
+                    string id = match_info.fetch (1);
+                    int num = footnote_ctx.get_or_add (id);
+                    if (num != -1) {
+                        res.append ("<sup id=\"footnote-link-%d\" class=\"wp-block-footnote\"><a href=\"#footnote-%d\">%d</a></sup>".printf (num, num, num));
+                    } else {
+                        res.append (match_info.fetch (0));
+                    }
+                    return false;
+                });
+
                 var code_regex = new Regex ("`(.*?)`");
                 result = code_regex.replace (result, -1, 0, "<code>\\1</code>");
 
@@ -237,9 +290,12 @@ namespace Wordpress {
         private Block root;
         private Block current;
         public Gee.HashMap<string, string> references { get; private set; }
+        public Gee.HashMap<string, string> footnotes { get; private set; }
+        private string? last_footnote_id = null;
 
         public Parser () {
             references = new Gee.HashMap<string, string> ();
+            footnotes = new Gee.HashMap<string, string> ();
         }
 
         public Block parse (string markdown) {
@@ -294,6 +350,26 @@ namespace Wordpress {
                 return;
             }
 
+            // Footnote definition: [^id]: content
+            try {
+                var footnote_def_regex = new Regex ("^\\[\\^(.*?)\\]:\\s*(.*)$");
+                MatchInfo match_info;
+                if (footnote_def_regex.match (trimmed, 0, out match_info)) {
+                    string id = match_info.fetch (1);
+                    string content = match_info.fetch (2);
+                    footnotes.set (id, content);
+                    last_footnote_id = id;
+                    return;
+                }
+            } catch (Error e) {}
+
+            // Footnote continuation
+            if (last_footnote_id != null && indent > 0) {
+                string existing = footnotes.get (last_footnote_id);
+                footnotes.set (last_footnote_id, existing + "\n" + trimmed);
+                return;
+            }
+
             // Reference definition: [id]: url
             try {
                 var ref_def_regex = new Regex ("^\\[(.*?)\\]:\\s*(\\S+)(?:\\s+.*)?$");
@@ -302,9 +378,15 @@ namespace Wordpress {
                     string id = match_info.fetch (1).down ();
                     string url = match_info.fetch (2);
                     references.set (id, url);
+                    last_footnote_id = null;
                     return;
                 }
             } catch (Error e) {}
+
+            // If not indented and not a definition, clear last_footnote_id
+            if (indent == 0) {
+                last_footnote_id = null;
+            }
 
             // Move up if indentation decreased
             while (current != root && indent < current.indent) {
