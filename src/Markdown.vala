@@ -10,6 +10,7 @@ namespace Wordpress {
         public bool ordered { get; set; }
         public string content { get; set; }
         public string alt { get; set; }
+        public string meta { get; set; }
         public Gee.ArrayList<Block> children { get; set; }
         public Block? parent { get; set; }
         public bool open { get; set; }
@@ -19,6 +20,7 @@ namespace Wordpress {
             this.block_type = type;
             this.content = "";
             this.alt = "";
+            this.meta = "";
             this.children = new Gee.ArrayList<Block> ();
             this.open = true;
             this.indent = indent;
@@ -59,6 +61,16 @@ namespace Wordpress {
         }
     }
 
+    private class LinkReference : Object {
+        public string url;
+        public string title;
+
+        public LinkReference (string url, string title = "") {
+            this.url = url;
+            this.title = title;
+        }
+    }
+
     public class MarkdownConverter : Object {
 
         public static string to_blocks (string markdown) {
@@ -88,7 +100,7 @@ namespace Wordpress {
             return Markup.escape_text (text);
         }
 
-        private static string render (Block block, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
+        private static string render (Block block, Gee.Map<string, LinkReference> references, FootnoteContext footnote_ctx) {
             var builder = new StringBuilder ();
             
             foreach (var child in block.children) {
@@ -105,7 +117,13 @@ namespace Wordpress {
                         builder.append ("</%s>\n<!-- /wp:list -->\n\n".printf (child.ordered ? "ol" : "ul"));
                         break;
                     case BlockType.CODE_BLOCK:
-                        builder.append ("<!-- wp:code -->\n<pre class=\"wp-block-code\"><code>");
+                        string language = child.meta.strip ();
+                        if (language != "") {
+                            language = language.split (" ")[0];
+                            builder.append ("<!-- wp:code -->\n<pre class=\"wp-block-code\"><code class=\"language-%s\">".printf (escape (language)));
+                        } else {
+                            builder.append ("<!-- wp:code -->\n<pre class=\"wp-block-code\"><code>");
+                        }
                         builder.append (escape (child.content)); 
                         builder.append ("</code></pre>\n<!-- /wp:code -->\n\n");
                         break;
@@ -128,7 +146,11 @@ namespace Wordpress {
                         builder.append ("<!-- wp:latex {\"latex\":\"%s\"} -->\n<p class=\"wp-block-latex\">$%s$</p>\n<!-- /wp:latex -->\n\n".printf (escaped_math, escaped_math));
                         break;
                     case BlockType.IMAGE:
-                        builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n\n".printf (child.content, escape (child.alt)));
+                        if (child.meta.strip () != "") {
+                            builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\" title=\"%s\"/></figure>\n<!-- /wp:image -->\n\n".printf (child.content, escape (child.alt), escape (child.meta.strip ())));
+                        } else {
+                            builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n\n".printf (child.content, escape (child.alt)));
+                        }
                         break;
                     case BlockType.TABLE:
                         builder.append ("<!-- wp:table -->\n<figure class=\"wp-block-table\"><table>");
@@ -149,16 +171,44 @@ namespace Wordpress {
             return builder.str;
         }
 
-        private static void render_table (string table_content, StringBuilder builder, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
+        private static void render_table (string table_content, StringBuilder builder, Gee.Map<string, LinkReference> references, FootnoteContext footnote_ctx) {
             var lines = table_content.strip ().split ("\n");
             if (lines.length < 2) return;
 
+            var alignments = new Gee.ArrayList<string> ();
+            var separator_cells = lines[1].split ("|");
+            for (int i = 0; i < separator_cells.length; i++) {
+                string separator = separator_cells[i].strip ();
+                if (separator == "" && (i == 0 || i == separator_cells.length - 1)) continue;
+
+                bool align_left = separator.has_prefix (":");
+                bool align_right = separator.has_suffix (":");
+                if (align_left && align_right) {
+                    alignments.add ("center");
+                } else if (align_left) {
+                    alignments.add ("left");
+                } else if (align_right) {
+                    alignments.add ("right");
+                } else {
+                    alignments.add ("none");
+                }
+            }
+
             builder.append ("<thead><tr>");
             var header_cells = lines[0].split ("|");
-            foreach (var cell in header_cells) {
+            int header_column = 0;
+            for (int i = 0; i < header_cells.length; i++) {
+                var cell = header_cells[i];
                 string trimmed = cell.strip ();
-                if (trimmed == "" && (cell == header_cells[0] || cell == header_cells[header_cells.length-1])) continue;
-                builder.append ("<th>%s</th>".printf (parse_inline (trimmed, references, footnote_ctx)));
+                if (trimmed == "" && (i == 0 || i == header_cells.length - 1)) continue;
+
+                string align = header_column < alignments.size ? alignments.get (header_column) : "none";
+                if (align != "none") {
+                    builder.append ("<th style=\"text-align:%s;\">%s</th>".printf (align, parse_inline (trimmed, references, footnote_ctx)));
+                } else {
+                    builder.append ("<th>%s</th>".printf (parse_inline (trimmed, references, footnote_ctx)));
+                }
+                header_column++;
             }
             builder.append ("</tr></thead>");
 
@@ -167,10 +217,19 @@ namespace Wordpress {
                 for (int i = 2; i < lines.length; i++) {
                     builder.append ("<tr>");
                     var cells = lines[i].split ("|");
-                    foreach (var cell in cells) {
+                    int body_column = 0;
+                    for (int cell_index = 0; cell_index < cells.length; cell_index++) {
+                        var cell = cells[cell_index];
                         string trimmed = cell.strip ();
-                        if (trimmed == "" && (cell == cells[0] || cell == cells[cells.length-1])) continue;
-                        builder.append ("<td>%s</td>".printf (parse_inline (trimmed, references, footnote_ctx)));
+                        if (trimmed == "" && (cell_index == 0 || cell_index == cells.length - 1)) continue;
+
+                        string align = body_column < alignments.size ? alignments.get (body_column) : "none";
+                        if (align != "none") {
+                            builder.append ("<td style=\"text-align:%s;\">%s</td>".printf (align, parse_inline (trimmed, references, footnote_ctx)));
+                        } else {
+                            builder.append ("<td>%s</td>".printf (parse_inline (trimmed, references, footnote_ctx)));
+                        }
+                        body_column++;
                     }
                     builder.append ("</tr>");
                 }
@@ -178,7 +237,7 @@ namespace Wordpress {
             }
         }
         
-        private static string render_inner_blocks (Block block, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
+        private static string render_inner_blocks (Block block, Gee.Map<string, LinkReference> references, FootnoteContext footnote_ctx) {
              var builder = new StringBuilder ();
              foreach (var child in block.children) {
                  switch (child.block_type) {
@@ -186,7 +245,11 @@ namespace Wordpress {
                         builder.append ("<!-- wp:paragraph -->\n<p>%s</p>\n<!-- /wp:paragraph -->\n".printf (parse_inline (child.content.strip (), references, footnote_ctx)));
                         break;
                     case BlockType.IMAGE:
-                        builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, escape (child.alt)));
+                        if (child.meta.strip () != "") {
+                            builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\" title=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, escape (child.alt), escape (child.meta.strip ())));
+                        } else {
+                            builder.append ("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, escape (child.alt)));
+                        }
                         break;
                     case BlockType.GALLERY:
                         builder.append ("<!-- wp:gallery {\"linkTo\":\"none\"} -->\n<figure class=\"wp-block-gallery has-nested-images columns-default is-cropped\">");
@@ -215,7 +278,7 @@ namespace Wordpress {
              return builder.str;
         }
 
-        private static string render_list_items (Block list_block, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
+        private static string render_list_items (Block list_block, Gee.Map<string, LinkReference> references, FootnoteContext footnote_ctx) {
             var builder = new StringBuilder ();
             foreach (var item in list_block.children) {
                  if (item.block_type == BlockType.LIST_ITEM) {
@@ -241,7 +304,11 @@ namespace Wordpress {
                                 builder.append ("\n<p>%s</p>\n".printf (parse_inline (child.content.strip (), references, footnote_ctx)));
                                 break;
                             case BlockType.IMAGE:
-                                builder.append ("\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, escape (child.alt)));
+                                if (child.meta.strip () != "") {
+                                    builder.append ("\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\" title=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, escape (child.alt), escape (child.meta.strip ())));
+                                } else {
+                                    builder.append ("\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"%s\" alt=\"%s\"/></figure>\n<!-- /wp:image -->\n".printf (child.content, escape (child.alt)));
+                                }
                                 break;
                             case BlockType.GALLERY:
                                 builder.append ("\n<!-- wp:gallery {\"linkTo\":\"none\"} -->\n<figure class=\"wp-block-gallery has-nested-images columns-default is-cropped\">");
@@ -251,7 +318,13 @@ namespace Wordpress {
                                 builder.append ("</figure>\n<!-- /wp:gallery -->\n");
                                 break;
                             case BlockType.CODE_BLOCK:
-                                builder.append ("\n<pre class=\"wp-block-code\"><code>");
+                                string language = child.meta.strip ();
+                                if (language != "") {
+                                    language = language.split (" ")[0];
+                                    builder.append ("\n<pre class=\"wp-block-code\"><code class=\"language-%s\">".printf (escape (language)));
+                                } else {
+                                    builder.append ("\n<pre class=\"wp-block-code\"><code>");
+                                }
                                 builder.append (escape (child.content)); 
                                 builder.append ("</code></pre>\n");
                                 break;
@@ -279,7 +352,7 @@ namespace Wordpress {
             return builder.str;
         }
 
-        private static string parse_inline (string text, Gee.Map<string, string> references, FootnoteContext footnote_ctx) {
+        private static string parse_inline (string text, Gee.Map<string, LinkReference> references, FootnoteContext footnote_ctx) {
              var code_spans = new Gee.ArrayList<string> ();
              var escaped_chars = new Gee.ArrayList<string> ();
              string result = text;
@@ -315,36 +388,88 @@ namespace Wordpress {
                 var strike_regex = new Regex ("~~(.*?)~~");
                 result = strike_regex.replace (result, -1, 0, "<s>\\1</s>");
 
-                var img_regex = new Regex ("!\\[(.*?)\\]\\((.*?)\\)");
-                result = img_regex.replace (result, -1, 0, "<img src=\"\\2\" alt=\"\\1\" />");
+                var img_regex = new Regex ("!\\[([^\\]]*)\\]\\(([^\\s\\)]+)(?:\\s+(?:&quot;(.*?)&quot;|&apos;(.*?)&apos;|\\((.*?)\\)))?\\)");
+                result = img_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
+                    string alt = match_info.fetch (1);
+                    string url = match_info.fetch (2);
+                    string title = "";
+                    string? title_double = match_info.fetch (3);
+                    string? title_single = match_info.fetch (4);
+                    string? title_paren = match_info.fetch (5);
 
-                var ref_img_regex = new Regex ("!\\[(.*?)\\]\\[(.*?)\\]");
+                    if (title_double != null && title_double != "") {
+                        title = title_double;
+                    } else if (title_single != null && title_single != "") {
+                        title = title_single;
+                    } else if (title_paren != null && title_paren != "") {
+                        title = title_paren;
+                    }
+
+                    if (title != "") {
+                        res.append ("<img src=\"%s\" alt=\"%s\" title=\"%s\" />".printf (url, alt, title));
+                    } else {
+                        res.append ("<img src=\"%s\" alt=\"%s\" />".printf (url, alt));
+                    }
+                    return false;
+                });
+
+                var ref_img_regex = new Regex ("!\\[([^\\]]*)\\]\\[([^\\]]*)\\]");
                 result = ref_img_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
                     string alt = match_info.fetch (1);
                     string id = match_info.fetch (2);
                     if (id == "") id = alt;
                     
-                    string? url = references.get (id.down ());
-                    if (url != null) {
-                        res.append ("<img src=\"%s\" alt=\"%s\" />".printf (url, alt));
+                    LinkReference? reference = references.get (id.down ());
+                    if (reference != null) {
+                        if (reference.title != "") {
+                            res.append ("<img src=\"%s\" alt=\"%s\" title=\"%s\" />".printf (reference.url, alt, escape (reference.title)));
+                        } else {
+                            res.append ("<img src=\"%s\" alt=\"%s\" />".printf (reference.url, alt));
+                        }
                     } else {
                         res.append (match_info.fetch (0));
                     }
                     return false;
                 });
 
-                var link_regex = new Regex ("\\[(.*?)\\]\\((.*?)\\)");
-                result = link_regex.replace (result, -1, 0, "<a href=\"\\2\">\\1</a>");
+                var link_regex = new Regex ("\\[([^\\]]*)\\]\\(([^\\s\\)]+)(?:\\s+(?:&quot;(.*?)&quot;|&apos;(.*?)&apos;|\\((.*?)\\)))?\\)");
+                result = link_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
+                    string label = match_info.fetch (1);
+                    string url = match_info.fetch (2);
+                    string title = "";
+                    string? title_double = match_info.fetch (3);
+                    string? title_single = match_info.fetch (4);
+                    string? title_paren = match_info.fetch (5);
 
-                var ref_link_regex = new Regex ("\\[(.*?)\\]\\[(.*?)\\]");
+                    if (title_double != null && title_double != "") {
+                        title = title_double;
+                    } else if (title_single != null && title_single != "") {
+                        title = title_single;
+                    } else if (title_paren != null && title_paren != "") {
+                        title = title_paren;
+                    }
+
+                    if (title != "") {
+                        res.append ("<a href=\"%s\" title=\"%s\">%s</a>".printf (url, title, label));
+                    } else {
+                        res.append ("<a href=\"%s\">%s</a>".printf (url, label));
+                    }
+                    return false;
+                });
+
+                var ref_link_regex = new Regex ("\\[([^\\]]*)\\]\\[([^\\]]*)\\]");
                 result = ref_link_regex.replace_eval (result, -1, 0, 0, (match_info, res) => {
                     string text_content = match_info.fetch (1);
                     string id = match_info.fetch (2);
                     if (id == "") id = text_content;
 
-                    string? url = references.get (id.down ());
-                    if (url != null) {
-                        res.append ("<a href=\"%s\">%s</a>".printf (url, text_content));
+                    LinkReference? reference = references.get (id.down ());
+                    if (reference != null) {
+                        if (reference.title != "") {
+                            res.append ("<a href=\"%s\" title=\"%s\">%s</a>".printf (reference.url, escape (reference.title), text_content));
+                        } else {
+                            res.append ("<a href=\"%s\">%s</a>".printf (reference.url, text_content));
+                        }
                     } else {
                         res.append (match_info.fetch (0));
                     }
@@ -388,12 +513,12 @@ namespace Wordpress {
     private class Parser : Object {
         private Block root;
         private Block current;
-        public Gee.HashMap<string, string> references { get; private set; }
+        public Gee.HashMap<string, LinkReference> references { get; private set; }
         public Gee.HashMap<string, string> footnotes { get; private set; }
         private string? last_footnote_id = null;
 
         public Parser () {
-            references = new Gee.HashMap<string, string> ();
+            references = new Gee.HashMap<string, LinkReference> ();
             footnotes = new Gee.HashMap<string, string> ();
         }
 
@@ -590,13 +715,24 @@ namespace Wordpress {
 
             // Reference definition
             try {
-                var ref_def_regex = new Regex ("^\\[(.*?)\\]:\\s*(\\S+)(?:\\s+.*)?$");
+                var ref_def_regex = new Regex ("^\\[(.*?)\\]:\\s*(\\S+)(?:\\s+(.*))?$");
                 MatchInfo match_info;
                 if (ref_def_regex.match (trimmed, 0, out match_info)) {
                     close_paragraph ();
                     string id = match_info.fetch (1).down ();
                     string url = match_info.fetch (2);
-                    references.set (id, url);
+                    string title = "";
+                    string? rest = match_info.fetch (3);
+                    if (rest != null) {
+                        string trimmed_rest = rest.strip ();
+                        if (trimmed_rest.length >= 2 && ((trimmed_rest.has_prefix ("\"") && trimmed_rest.has_suffix ("\"")) || (trimmed_rest.has_prefix ("'") && trimmed_rest.has_suffix ("'")))) {
+                            title = trimmed_rest.substring (1, trimmed_rest.length - 2);
+                        } else if (trimmed_rest.length >= 2 && trimmed_rest.has_prefix ("(") && trimmed_rest.has_suffix (")")) {
+                            title = trimmed_rest.substring (1, trimmed_rest.length - 2);
+                        }
+                    }
+
+                    references.set (id, new LinkReference (url, title));
                     last_footnote_id = null;
                     return;
                 }
@@ -608,6 +744,7 @@ namespace Wordpress {
             if (trimmed.has_prefix ("```")) {
                 close_paragraph ();
                 var code_block = new Block (BlockType.CODE_BLOCK, indent);
+                code_block.meta = trimmed.substring (3).strip ();
                 add_block (code_block);
                 current = code_block;
                 return;
@@ -745,13 +882,28 @@ namespace Wordpress {
 
             // Image block
             try {
-                var img_regex = new Regex ("^!\\[(.*?)\\]\\((.*?)\\)$");
+                var img_regex = new Regex ("^!\\[([^\\]]*)\\]\\(([^\\s\\)]+)(?:\\s+(?:\"(.*?)\"|'(.*?)'|\\((.*?)\\)))?\\)$");
                 MatchInfo match_info;
                 if (img_regex.match (trimmed, 0, out match_info)) {
                     close_paragraph ();
                     var image_block = new Block (BlockType.IMAGE, indent);
                     image_block.alt = match_info.fetch (1);
                     image_block.content = match_info.fetch (2);
+
+                    string title = "";
+                    string? title_double = match_info.fetch (3);
+                    string? title_single = match_info.fetch (4);
+                    string? title_paren = match_info.fetch (5);
+
+                    if (title_double != null && title_double != "") {
+                        title = title_double;
+                    } else if (title_single != null && title_single != "") {
+                        title = title_single;
+                    } else if (title_paren != null && title_paren != "") {
+                        title = title_paren;
+                    }
+
+                    image_block.meta = title;
                     add_block (image_block);
                     return;
                 }
