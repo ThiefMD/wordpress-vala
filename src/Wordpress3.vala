@@ -352,8 +352,6 @@ namespace Wordpress {
             } else {
                 if (!is_mime) {
                     add_header ("Content-Type", "application/json");
-                } else {
-                    add_header ("Content-Type", Soup.FORM_MIME_TYPE_MULTIPART);
                 }
             }
 
