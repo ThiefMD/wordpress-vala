@@ -548,6 +548,27 @@ namespace Wordpress {
             }
         }
 
+        private void close_quote_containers () {
+            while (current != root && current.block_type == BlockType.QUOTE) {
+                current.close ();
+                current = current.parent;
+            }
+        }
+
+        private void close_list_containers_for_sibling (int indent) {
+            while (current != root &&
+                ((current.block_type == BlockType.LIST_ITEM && indent <= current.indent) ||
+                 (current.block_type == BlockType.LIST && indent <= current.indent))) {
+                current.close ();
+                current = current.parent;
+            }
+        }
+
+        private void prepare_for_new_block (int indent) {
+            close_paragraph ();
+            close_list_containers_for_sibling (indent);
+        }
+
         private void add_block (Block block) {
             if (current.block_type == BlockType.DOCUMENT || current.block_type == BlockType.QUOTE || current.block_type == BlockType.LIST_ITEM) {
                 if (block.block_type == BlockType.IMAGE && current.children.size > 0) {
@@ -625,6 +646,10 @@ namespace Wordpress {
                     }
                     current = temp;
                 }
+
+                if (current.block_type == BlockType.QUOTE) {
+                    close_quote_containers ();
+                }
                 return;
             }
 
@@ -646,7 +671,7 @@ namespace Wordpress {
                 if (current.block_type == BlockType.CODE_BLOCK && current.open) {
                     current.content += line.substring (4) + "\n";
                 } else {
-                    close_paragraph ();
+                    prepare_for_new_block (indent);
                     var cb = new Block (BlockType.CODE_BLOCK, indent);
                     cb.content = line.substring (4) + "\n";
                     add_block (cb);
@@ -666,7 +691,7 @@ namespace Wordpress {
             }
 
             if (is_thematic) {
-                 close_paragraph ();
+                 prepare_for_new_block (indent);
                  add_block (new Block (BlockType.THEMATIC_BREAK, indent));
                  return;
             }
@@ -704,7 +729,7 @@ namespace Wordpress {
                 var footnote_def_regex = new Regex ("^\\[\\^(.*?)\\]:\\s*(.*)$");
                 MatchInfo match_info;
                 if (footnote_def_regex.match (trimmed, 0, out match_info)) {
-                    close_paragraph ();
+                    prepare_for_new_block (indent);
                     string id = match_info.fetch (1);
                     string content = match_info.fetch (2);
                     footnotes.set (id, content);
@@ -718,7 +743,7 @@ namespace Wordpress {
                 var ref_def_regex = new Regex ("^\\[(.*?)\\]:\\s*(\\S+)(?:\\s+(.*))?$");
                 MatchInfo match_info;
                 if (ref_def_regex.match (trimmed, 0, out match_info)) {
-                    close_paragraph ();
+                    prepare_for_new_block (indent);
                     string id = match_info.fetch (1).down ();
                     string url = match_info.fetch (2);
                     string title = "";
@@ -742,7 +767,7 @@ namespace Wordpress {
 
             // Fenced code block
             if (trimmed.has_prefix ("```")) {
-                close_paragraph ();
+                prepare_for_new_block (indent);
                 var code_block = new Block (BlockType.CODE_BLOCK, indent);
                 code_block.meta = trimmed.substring (3).strip ();
                 add_block (code_block);
@@ -752,7 +777,7 @@ namespace Wordpress {
 
             // HTML Block
             if (trimmed.has_prefix ("<")) {
-                close_paragraph ();
+                prepare_for_new_block (indent);
                 var html_block = new Block (BlockType.HTML, indent);
                 html_block.content = trimmed;
                 add_block (html_block);
@@ -761,7 +786,7 @@ namespace Wordpress {
 
             // Math Block
             if (trimmed.has_prefix ("$$")) {
-                close_paragraph ();
+                prepare_for_new_block (indent);
                 var math_block = new Block (BlockType.MATH, indent);
                 if (trimmed.length > 2 && trimmed.has_suffix ("$$")) {
                     math_block.content = trimmed.substring (2, trimmed.length - 4).strip ();
@@ -776,7 +801,7 @@ namespace Wordpress {
 
             // Headings
             if (trimmed.has_prefix ("#")) {
-                close_paragraph ();
+                prepare_for_new_block (indent);
                 int level = 0;
                 while (level < trimmed.length && trimmed[level] == '#') level++;
                 var heading = new Block (BlockType.HEADING, indent);
@@ -788,7 +813,7 @@ namespace Wordpress {
 
             // Blockquotes
             if (trimmed.has_prefix (">")) {
-                close_paragraph ();
+                prepare_for_new_block (indent);
                 int quote_level = 0;
                 string q_trimmed = trimmed;
                 while (q_trimmed.has_prefix (">")) {
@@ -885,7 +910,7 @@ namespace Wordpress {
                 var img_regex = new Regex ("^!\\[([^\\]]*)\\]\\(([^\\s\\)]+)(?:\\s+(?:\"(.*?)\"|'(.*?)'|\\((.*?)\\)))?\\)$");
                 MatchInfo match_info;
                 if (img_regex.match (trimmed, 0, out match_info)) {
-                    close_paragraph ();
+                    prepare_for_new_block (indent);
                     var image_block = new Block (BlockType.IMAGE, indent);
                     image_block.alt = match_info.fetch (1);
                     image_block.content = match_info.fetch (2);

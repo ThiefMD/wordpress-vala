@@ -29,6 +29,8 @@ namespace Wordpress {
             Test.add_func ("/markdown/gallery", test_gallery);
             Test.add_func ("/markdown/escapes", test_escapes);
             Test.add_func ("/markdown/robustness", test_robustness);
+            Test.add_func ("/markdown/bugfix-quote-boundary", test_bug_fix_quote_boundary);
+            Test.add_func ("/markdown/bugfix-list-sibling-block", test_bug_fix_list_sibling_block);
             Test.add_func ("/markdown/bugfix-list-continuation", test_bug_fix_list_continuation);
             Test.add_func ("/markdown/malformed-title-syntax", test_malformed_title_syntax);
             Test.add_func ("/markdown/mixed-valid-and-malformed-titles", test_mixed_valid_and_malformed_titles);
@@ -338,6 +340,20 @@ namespace Wordpress {
             actual = MarkdownConverter.to_blocks (md);
             expect_true (actual.contains ("<strong>bold</strong>"), "Underscore bold");
             expect_true (actual.contains ("<em>italic</em>"), "Underscore italic");
+        }
+
+        private static void test_bug_fix_quote_boundary () {
+            string md = "> Quoted line\n\nAfter quote.";
+            string expected = "<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\"><!-- wp:paragraph -->\n<p>Quoted line</p>\n<!-- /wp:paragraph -->\n</blockquote>\n<!-- /wp:quote -->\n\n" +
+                              "<!-- wp:paragraph -->\n<p>After quote.</p>\n<!-- /wp:paragraph -->\n\n";
+            expect_equal (expected, MarkdownConverter.to_blocks (md), "Bug Fix: Quote Properly Closed");
+        }
+
+        private static void test_bug_fix_list_sibling_block () {
+            string md = "* List Item\n\n> After list quote";
+            string expected = "<!-- wp:list {\"ordered\":false} -->\n<ul>\n<li>List Item</li>\n</ul>\n<!-- /wp:list -->\n\n" +
+                              "<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\"><!-- wp:paragraph -->\n<p>After list quote</p>\n<!-- /wp:paragraph -->\n</blockquote>\n<!-- /wp:quote -->\n\n";
+            expect_equal (expected, MarkdownConverter.to_blocks (md), "Bug Fix: List Sibling Block");
         }
 
         private static void test_bug_fix_list_continuation () {
